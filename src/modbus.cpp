@@ -169,7 +169,7 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
 {
     int rc, req_length;
     uint8_t req[MODBUS_TCP_REQ_LENGTH];
-    uint8_t *rsp = malloc(sizeof(uint8_t) * MODBUS_MAX_FRAME_LENGTH);
+    uint8_t *rsp = (uint8_t *) malloc(sizeof(uint8_t) * MODBUS_MAX_FRAME_LENGTH);
     modbus_regs mrsp = &rsp;
 
     req_length = modbus_build_request_header(mb, MODBUS_READ_HOLDING_REGISTERS, addr, qoc, req);

@@ -2,24 +2,25 @@
 #define SMA_H
 
 typedef struct {
-    long unsigned DAY_YIELD;
-    long unsigned TOTAL_YIELD;
+    long unsigned DayYield;
+    long unsigned TotalYield;
 
-    char ip[16];
-    char name[32];
-    double temperature;
+    char *Ip;
+    unsigned short Port;
+    char *Name;
+    double Temperature;
 
-    double DC_1_VOLT;
-    double DC_1_AMP;
-    long unsigned DC_1_WATT;
+    double Udc1;
+    double Idc1;
+    long unsigned Pdc1;
     
-    double DC_2_VOLT;
-    double DC_2_AMP;
-    long unsigned DC_2_WATT;
+    double Udc2;
+    double Idc2;
+    long unsigned Pdc2;
 
-    double AC_L1_VOLT;
-    double AC_L1_AMP;
-    long unsigned AC_L1_WATT;
+    double Uac1;
+    double Iac1;
+    long unsigned Pac1;
 } SMA_Inverter;
 
 #endif
