@@ -26,14 +26,18 @@
 #define INFLUX_ORG "massimog"
 #define INFLUX_BUCKET "SMA"
 
+int processInverter(SMA_Inverter *pinv, modbus_t *t);
+int exportToInflux(Influx &ifx, SMA_Inverter *pinv, unsigned long currentTimestamp);
+void printInverter(SMA_Inverter *pinv);
+
 /**
  * Requests everything needed from an inverter and pushes to influxDB
  * @param SMA_Inverter Inverter struct with IP already filled in
  */
-int processInverter(SMA_Inverter *pinv, modbus_t *t)
+int processInverter(SMA_Inverter *inv, modbus_t *t)
 {
-    SMA_Inverter inv = *pinv;
-    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m--------------------------\\n", inv.Name, inv.Ip);
+    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m--------------------------\n", 
+        inv->Name, inv->Ip);
 
     // modbus_t *t = modbus_connect_tcp(inv.Ip, 502);
 
@@ -46,8 +50,8 @@ int processInverter(SMA_Inverter *pinv, modbus_t *t)
         return -1;
     }
 
-    inv.TotalYield = getValue(regs, 30529, 30529);
-    inv.DayYield = getValue(regs, 30529, 30535);
+    inv->TotalYield = getValue(regs, 30529, 30529);
+    inv->DayYield = getValue(regs, 30529, 30535);
 
     modbus_free_registers(regs);
 
@@ -60,12 +64,12 @@ int processInverter(SMA_Inverter *pinv, modbus_t *t)
     {
         return -1;
     }
-    inv.Udc1 = ((double)getValue(regs, 30769, 30771) / 100);
-    inv.Idc1 = ((double)getValue(regs, 30769, 30769) / 1000);
-    inv.Pdc1 = getValue(regs, 30769, 30773);
+    inv->Udc1 = ((double)getValue(regs, 30769, 30771) / 100);
+    inv->Idc1 = ((double)getValue(regs, 30769, 30769) / 1000);
+    inv->Pdc1 = getValue(regs, 30769, 30773);
 
-    inv.Uac1 = ((double)getValue(regs, 30769, 30783) / 100);
-    inv.Pac1 = getValue(regs, 30769, 30775);
+    inv->Uac1 = ((double)getValue(regs, 30769, 30783) / 100);
+    inv->Pac1 = getValue(regs, 30769, 30775);
 
     modbus_free_registers(regs);
 
@@ -76,48 +80,65 @@ int processInverter(SMA_Inverter *pinv, modbus_t *t)
         return -1;
     }
 
-    inv.Temperature = getValue(regs, 30953, 30953) / 10;
+    inv->Temperature = getValue(regs, 30953, 30953) / 10;
 
-    inv.Udc2 = ((double)getValue(regs, 30953, 30959) / 100);
-    inv.Idc2 = ((double)getValue(regs, 30953, 30957) / 1000);
-    inv.Pdc2 = getValue(regs, 30953, 30961);
+    inv->Udc2 = ((double)getValue(regs, 30953, 30959) / 100);
+    inv->Idc2 = ((double)getValue(regs, 30953, 30957) / 1000);
+    inv->Pdc2 = getValue(regs, 30953, 30961);
 
-    inv.Iac1 = ((double)getValue(regs, 30953, 30977) / 1000);
+    inv->Iac1 = ((double)getValue(regs, 30953, 30977) / 1000);
 
     modbus_free_registers(regs);
-
-    printf("Total yield: %luWh\n", inv.TotalYield);
-    printf("Day yield: %luWh\n", inv.DayYield);
-    printf("Inverter\n\tTemperature: %fC\n", inv.Temperature);
-    printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv.Udc1, inv.Idc1, inv.Pdc1);
-    printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv.Udc2, inv.Idc2, inv.Pdc2);
-    printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv.Uac1, inv.Iac1, inv.Pac1);
-
-    Influx i(INFLUX_HOST, INFLUX_PORT, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
-    i   .meas("measurement")
-        .tag("inverter", inv.Name)
-
-        .field("Temperature", inv.Temperature)
-
-        .field("Pac1", inv.Pac1)
-        .field("Pdc1", inv.Pdc1)
-        .field("Pdc2", inv.Pdc2)
-
-        .field("Uac1", inv.Uac1)
-        .field("Udc1", inv.Udc1)
-        .field("Udc2", inv.Udc2)
-
-        .field("Iac1", inv.Iac1)
-        .field("Idc1", inv.Idc1)
-        .field("Idc2", inv.Idc2)
-        .timestamp(time(NULL))
-        .post();
 
     return 0;
 }
 
+int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
+{
+    return ifx.meas("measurement")
+        .tag("inverter", inv->Name)
+
+        .field("Temperature", inv->Temperature)
+        .field("DayYield", inv->DayYield)
+        .field("TotalYield", inv->TotalYield)
+
+        .field("Pac1", inv->Pac1)
+        .field("Pdc1", inv->Pdc1)
+        .field("Pdc2", inv->Pdc2)
+
+        .field("Uac1", inv->Uac1)
+        .field("Udc1", inv->Udc1)
+        .field("Udc2", inv->Udc2)
+
+        .field("Iac1", inv->Iac1)
+        .field("Idc1", inv->Idc1)
+        .field("Idc2", inv->Idc2)
+        .timestamp(currentTimestamp)
+        .post();
+}
+
+void printInverter(SMA_Inverter *inv)
+{
+    printf("Total yield: %luWh\n", inv->TotalYield);
+    printf("Day yield: %luWh\n", inv->DayYield);
+    printf("Inverter\n\tTemperature: %fC\n", inv->Temperature);
+    printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
+    printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
+    printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
+}
+
 int main(void)
 {
+    /**
+     * Connect to InfluxDB
+     */
+    Influx ifx(INFLUX_HOST, INFLUX_PORT, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
+    if (ifx.connectNow() != 0)
+    {
+        fprintf(stderr, "main: InfluxDB connection failed\n");
+        return -1;
+    }
+
     // Connect to clients
     SMA_Inverter sb3000 = {
         .Ip = strdup("172.19.1.38"),
@@ -135,12 +156,22 @@ int main(void)
     modbus_t *sb4000_conn = modbus_connect_tcp(sb4000.Ip, sb4000.Port);
     puts("Connected to SB4000TL");
 
-    printf("Connected ");
+    // TODO  HANDLE UNIX SIGNALS
+    for (unsigned long long i = 0;; i++)
+    {
+        unsigned long currentTimestamp = time(NULL);
 
-    // TODO  HANDLE UNIX SIGNALS  
-    for (unsigned long long i=0;;i++) {
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);
+
+        printInverter(&sb3000);
+        printInverter(&sb4000);
+
+        /**
+         * Export to InfluxDB using the same timestamp
+         */
+        exportToInflux(ifx, &sb3000, currentTimestamp);
+        exportToInflux(ifx, &sb4000, currentTimestamp);
 
         sleep(INTERVAL);
     }

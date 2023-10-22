@@ -14,6 +14,9 @@ typedef unsigned short uint16_t;
 #define MODBUS_TCP_REQ_LENGTH 12
 #define MODBUS_DATA_OFFSET 9
 
+// How many seconds to wait before attemping again 
+#define MODBUS_SMA_WAIT 1
+
 enum
 {
     MODBUS_EXCEPTION_ILLEGAL_FUNCTION       = 0x01,

@@ -74,10 +74,7 @@ int modbus_build_request_header(modbus_t *mb, unsigned char function, unsigned s
     mbap_length = 6; // unit ID, function code, reg addr (2), data (2b)
 
     /* Increase transaction ID */
-    if (mb->transaction_id < 0xFFFF)
-        mb->transaction_id++;
-    else
-        mb->transaction_id = 0;
+    mb->transaction_id++;
 
     /**
      * MODBUS TCP/IP ADU
@@ -252,13 +249,13 @@ int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length)
         // FD is ready to write
         rc = recv(mb->s, (char *)rsp, rsp_length, 0);
 
-        //! WARN: IDK why, but I sometimes receive only 1 byte 0xFF, so consider as fail
+        //! WARN: IDK why, but I continously receive only 1 byte 0xFF, so consider as fail
         if (rc <= 1)
         {
             // Error or timeout
             fprintf(stderr, "modbus: read register failed. Retrying %d\n", retry);
             // SMA's bullshit implementation
-            sleep(3);
+            sleep(MODBUS_SMA_WAIT);
             continue;
         }
 

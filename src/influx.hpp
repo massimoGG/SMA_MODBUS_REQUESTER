@@ -38,24 +38,32 @@ public:
         org_ = org;
         tkn_ = token;
         bkt_ = bucket;
+    }
 
-        struct sockaddr_in serv_addr;
-        if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    int connectNow()
+    {
+        fprintf(stdout, "influxdb: Connecting.\n");
+        sockfd = sockfd ? sockfd: socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd <= 0)
         {
-            std::cerr << "socket() failed\n";
-            return;
+            fprintf(stderr, "influxdb: socket failed\n");
+            return -1;
         }
 
+        struct sockaddr_in serv_addr;
         serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = inet_addr(host.c_str());
-        serv_addr.sin_port = htons(port);
+        serv_addr.sin_addr.s_addr = inet_addr(host_.c_str());
+        serv_addr.sin_port = htons(port_);
 
         if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         {
-            std::cerr << "connect() failed\n";
-            return;
+            std::cerr << "influxdb: connect() failed\n";
+            return -2;
         }
+
+        return 0;
     }
+
     void close(void)
     {
         if (sockfd > 0)
@@ -98,9 +106,11 @@ public:
     {
         std::string body = lines_.str();
         // Construct fields section
-        for (size_t i = 0; i < fields.size(); i ++) {
+        for (size_t i = 0; i < fields.size(); i++)
+        {
             body += fields[i];
-            if (i+1 < fields.size()) {
+            if (i + 1 < fields.size())
+            {
                 body += ",";
             }
         }
@@ -116,10 +126,19 @@ public:
         buffer = std::string(header) + body;
         size_t buffer_len = buffer.length();
 
-        if (write(sockfd, buffer.c_str(), buffer_len) < len)
+        int rc = write(sockfd, buffer.c_str(), buffer_len);
+        if (rc < len)
         {
-            std::cerr << "Could not POST\n";
-            return -1;
+            // TODO Do this properly :)
+            fprintf(stderr, "influxdb: Could not POST!\n");
+            if (rc == 0)
+            {
+                fprintf(stderr, "influxdb: Lost connection\n");
+                // Disconnected
+                this->connectNow();
+            }
+            else
+                return -1;
         }
 
         return 0;
