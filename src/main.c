@@ -54,12 +54,11 @@ int processInverter(const char *ip)
     {
         return -1;
     }
-    inv.DC_1_VOLT   = getValue(regs, 30769, 30771) / 100; 
-    inv.DC_1_AMP    = getValue(regs, 30769, 30769) / 1000;
+    inv.DC_1_VOLT   = ((double)getValue(regs, 30769, 30771) / 100); 
+    inv.DC_1_AMP    = ((double)getValue(regs, 30769, 30769) / 1000);
     inv.DC_1_WATT   = getValue(regs, 30769, 30773);
 
-
-    inv.AC_L1_VOLT  = getValue(regs, 30769, 30783) / 100,
+    inv.AC_L1_VOLT  = ((double)getValue(regs, 30769, 30783) / 100);
     inv.AC_L1_WATT  = getValue(regs, 30769, 30775);
 
     modbus_free_registers(regs);
@@ -73,11 +72,11 @@ int processInverter(const char *ip)
 
     inv.temperature = getValue(regs, 30953, 30953) / 10;
 
-    inv.DC_2_VOLT   = getValue(regs, 30953, 30959) / 100;
-    inv.DC_2_AMP    = getValue(regs, 30953, 30957) / 1000;
+    inv.DC_2_VOLT   = ((double)getValue(regs, 30953, 30959) / 100);
+    inv.DC_2_AMP    = ((double)getValue(regs, 30953, 30957) / 1000);
     inv.DC_2_WATT   = getValue(regs, 30953, 30961);
 
-    inv.AC_L1_AMP   = getValue(regs, 30953, 30977) / 1000;
+    inv.AC_L1_AMP   = ((double)getValue(regs, 30953, 30977) / 1000);
 
     modbus_free_registers(regs);
 

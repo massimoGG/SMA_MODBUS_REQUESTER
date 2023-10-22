@@ -14,6 +14,8 @@
 
 #include "modbus.h"
 
+int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length);
+
 /**
  * Prepares modbus type, connects to target
  * @return modbus_type
@@ -193,6 +195,35 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
     /**
      * Receive packet
      */
+    int func_code = _modbus_receive(mb, rsp, MODBUS_MAX_FRAME_LENGTH);
+    if (func_code < 0)
+    {
+        // An error occured after all retries -> abort
+        return NULL;
+    }
+
+#if DEBUG
+    printf("Received\t");
+    for (int i = 0; i < rc; i++)
+        printf("[%.2X]", rsp[i]);
+    printf("\n");
+#endif
+
+    return mrsp;
+}
+
+/**
+ * Handles receiving and retries.
+ * Modifies the rsp parameter with the response.
+ * @param mb modbus_type
+ * @param *rsp Reponse buffer
+ * @param rsp_length Length of the buffer
+ * @return function code
+ */
+int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length)
+{
+    int rc = 0, func_code = 0;
+
     struct pollfd pfds[1];
     pfds[0].fd = mb->s;
     pfds[0].events = POLLIN;
@@ -219,9 +250,9 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
         }
 
         // FD is ready to write
-        rc = recv(mb->s, (char *)rsp, MODBUS_MAX_FRAME_LENGTH, 0);
+        rc = recv(mb->s, (char *)rsp, rsp_length, 0);
 
-        //!WARN: IDK why, but I sometimes receive only 1 byte 0xFF, so consider as fail
+        //! WARN: IDK why, but I sometimes receive only 1 byte 0xFF, so consider as fail
         if (rc <= 1)
         {
             // Error or timeout
@@ -231,88 +262,39 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
             continue;
         }
 
-        int func_code = rsp[7];
+        func_code = rsp[7];
 
 #if DEBUG
-    printf("read_registers: Received %d bytes: function code: %d\n", rc, func_code);
+        printf("read_registers: Received %d bytes: function code: %d\n", rc, func_code);
 #endif
 
         // Exception Function code MSB bit = 1 = 0x80 higher
         if ((func_code >> 7) == 0x01)
         {
-            switch (func_code)
+            switch (func_code & 0x0F)
             {
-            case 0x81:
+            case MODBUS_EXCEPTION_ILLEGAL_FUNCTION:
                 printf("read_registers: Illegal function\n");
                 break;
-            case 0x82:
+            case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
                 printf("read_registers: Illegal Data Address\n");
                 break;
-            case 0x83:
+            case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
                 printf("read_registers: Illegal Data Value\n");
                 break;
             default:
                 printf("read_registers: Illegal error : %d\n", func_code);
             }
-            return NULL;
+            return -1;
         }
 
         break;
     }
 
     if (retry >= RETRIES)
-        return NULL;
+        return -2;
 
-#if DEBUG
-    printf("Received\t");
-    for (int i = 0; i < rc; i++)
-        printf("[%.2X]", rsp[i]);
-    printf("\n");
-#endif
-
-    return mrsp;
-}
-
-/**
- * Wrapper function for socket recv() with a timeout using select()
- * @param mb modbus_type
- * @param *rsp Reponse buffer
- * @param rsp_length Length of the buffer
- * @return status code
- */
-int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length)
-{
-    int rc;
-
-    struct pollfd pfds[1];
-    pfds[0].fd = mb->s;
-    pfds[0].events = POLLIN; // Ready to read
-
-    struct timeval tv;
-    tv.tv_sec = 5; // Timeout of 5 seconds
-    tv.tv_usec = 0;
-
-    fd_set rset;
-    FD_ZERO(&rset);
-    FD_SET(mb->s, &rset);
-
-    rc = select(mb->s + 1, &rset, NULL, NULL, &tv);
-    if (rc < 0)
-    {
-        // An error occured
-        fprintf(stderr, "recv: select\n");
-        return rc;
-    }
-    if (FD_ISSET(mb->s, &rset))
-    {
-        return recv(mb->s, (char *)rsp, rsp_length, 0);
-    }
-    else
-    {
-        // Timeout
-        fprintf(stderr, "recv: timeout\n");
-        return rc;
-    }
+    return func_code;
 }
 
 void modbus_free_registers(modbus_regs regs)

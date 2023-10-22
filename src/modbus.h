@@ -7,18 +7,22 @@
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 
-#define MODBUS_READ_HOLDING_REGISTERS   0x03
-#define MODBUS_READ_INPUT_REGISTERS     0x04
+#define MODBUS_READ_HOLDING_REGISTERS 0x03
+#define MODBUS_READ_INPUT_REGISTERS 0x04
 
 #define MODBUS_MAX_FRAME_LENGTH 260
 #define MODBUS_TCP_REQ_LENGTH 12
 #define MODBUS_DATA_OFFSET 9
 
-enum {
-    MODBUS_EXCEPTION_ILLEGAL_FUNCTION = 0x01,
+enum
+{
+    MODBUS_EXCEPTION_ILLEGAL_FUNCTION       = 0x01,
+    MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS   = 0x02,
+    MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE     = 0x03,
 };
 
-typedef struct {
+typedef struct
+{
     int s;
 
     unsigned char slave;
