@@ -29,8 +29,9 @@ AC
 These values are then sent to an Influx Database 2.0 using the HTTP line protocol.
 
 ## Config
-
+See config file
 
 ## Build instructions
 Simply run
 `make`
+

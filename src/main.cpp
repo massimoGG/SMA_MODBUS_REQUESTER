@@ -9,27 +9,255 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "modbus.h"
 #include "sma.h"
 #include "influx.hpp"
 
-// Every x seconds
-#define INTERVAL 15
-#define SHOW 1
+typedef struct
+{
+    /**
+     * General settings
+     */
+    unsigned long Interval;
 
-/**
- * Influx stuff
- */
-#define INFLUX_TOKEN "PMZqaSeeUEPTmnC6DJZBWDP3pGmSlhTUQU4u7Erw9x6qEwpiLT99-GV0gh9h6e5lQg4tV-G5Mfde07gPRaJzpg=="
-#define INFLUX_HOST "172.16.1.3"
-#define INFLUX_PORT 8086
-#define INFLUX_ORG "massimog"
-#define INFLUX_BUCKET "SMA"
+    /**
+     * InfluxDB
+     */
+    char *InfluxHost;
+    unsigned short InfluxPort;
+    char *InfluxToken;
+    char *InfluxOrg;
+    char *InfluxBucket;
+
+    int numOfInverters;
+    // Array of pointers :D
+    SMA_Inverter *inverters[];
+} Config;
+
+volatile sig_atomic_t run = 0;
+
+void sigint_handler(int sig);
+int readConfigFile(char *path, Config *config);
 
 int processInverter(SMA_Inverter *pinv, modbus_t *t);
 int exportToInflux(Influx &ifx, SMA_Inverter *pinv, unsigned long currentTimestamp);
 void printInverter(SMA_Inverter *pinv);
+
+/**
+ * Interrupt signal, finish last run and stop loop
+ */
+void sigint_handler(int sig)
+{
+    fprintf(stdout, "Stopping.\n");
+    run = sig;
+}
+
+/**
+ * TODO Place this in its own config.h file :)
+ * @param path Path of the config file
+ * @param config initializated Config struct to be filled
+ * @return status
+ */
+int readConfigFile(char *path, Config *config)
+{
+    // TODO: path = path. so we can specifiy the config file location
+    FILE *file = fopen("./config", "r");
+    if (file == NULL)
+    {
+        return -1;
+    }
+
+    config->numOfInverters = 0;
+
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    while ((read = getline(&line, &len, file)) != -1)
+    {
+        // Ignore comments
+        if (line[0] == '#')
+            continue;
+        // Remove \n from line
+        line[strlen(line) - 1] = '\0';
+
+        if (strncmp(line, "INTERVAL", 8) == 0)
+            config->Interval = atoi(line + 9);
+
+        if (strncmp(line, "INFLUX_HOST", 11) == 0)
+            config->InfluxHost = strdup(line + 12);
+
+        if (strncmp(line, "INFLUX_PORT", 11) == 0)
+            config->InfluxPort = atoi(line + 12);
+
+        if (strncmp(line, "INFLUX_TOKEN", 12) == 0)
+            config->InfluxToken = strdup(line + 14);
+
+        if (strncmp(line, "INFLUX_ORG", 10) == 0)
+            config->InfluxOrg = strdup(line + 11);
+
+        if (strncmp(line, "INFLUX_BUCKET", 13) == 0)
+            config->InfluxBucket = strdup(line + 14);
+
+        /**
+         * Inverter configs
+         */
+        if (strncmp(line, "INVERTERS_IP", 12) == 0)
+        {
+            // Split by space
+            for (char *invIp = strtok(line + 13, " "); invIp != NULL; invIp = strtok(NULL, " "))
+            {
+                SMA_Inverter *si = (SMA_Inverter *)malloc(sizeof(SMA_Inverter));
+                si->Ip = strdup(invIp);
+
+                // append
+                config->inverters[config->numOfInverters] = si;
+
+                config->numOfInverters++;
+            }
+        }
+        if (strncmp(line, "INVERTERS_NAME", 14) == 0)
+        {
+            int i = 0;
+            for (char *invName = strtok(line + 15, " "); invName != NULL; invName = strtok(NULL, " "), i++)
+            {
+                config->inverters[i]->Name = strdup(invName);
+            }
+        }
+        if (strncmp(line, "INVERTERS_PORT", 14) == 0)
+        {
+            int i = 0;
+            for (char *invPort = strtok(line + 15, " "); invPort != NULL; invPort = strtok(NULL, " "), i++)
+            {
+                unsigned short port = atoi(invPort);
+                config->inverters[i]->Port = port;
+            }
+        }
+    }
+
+    // DAMN, This worked perfectly first-try.
+    //  printf("Read config\ninter: %d\nhost: '%s'\nport %d\nToken %s\norg: %s\nbucket:%s\n",
+    // config->Interval, config->InfluxHost, config->InfluxPort, config->InfluxToken, config->InfluxOrg, config->InfluxBucket);
+    // Anyway, TODO: Do this in smaller functions etc.
+    fclose(file);
+    return 0;
+}
+
+int main(int argc, char *argv[], char *envp[])
+{
+    printf("env %s\n", envp[0]);
+    /**
+     * Prepare interrupt signal
+     */
+    struct sigaction sa_int;
+    sa_int.sa_handler = sigint_handler;
+    sa_int.sa_flags = SA_RESTART;
+
+    if ((sigaction(SIGINT, &sa_int, NULL) == -1))
+    {
+        fprintf(stderr, "sigaction failed\n");
+        return -1;
+    }
+
+    /**
+     * Read Config file
+     */
+    Config config;
+    readConfigFile(argv[1], &config);
+    unsigned int interval = config.Interval; // 15;
+
+    int printInverters = 0;
+    /**
+     * Command line argument verbose
+     */
+    if (argc != 2)
+        return -1; // TODO Show usage
+    if (strncmp(argv[1], "-v", 2) == 0)
+        printInverters = 1;
+
+    /**
+     * Connect to InfluxDB
+     */
+    Influx ifx(config.InfluxHost, config.InfluxPort, config.InfluxOrg, config.InfluxBucket, config.InfluxToken);
+    if (ifx.connectNow() != 0)
+    {
+        fprintf(stderr, "main: InfluxDB connection failed\n");
+        return -1;
+    }
+
+    /**
+     * Connect to modbus
+     */
+    modbus_t **connections = (modbus_t **)malloc(sizeof(modbus_t *) * config.numOfInverters);
+    for (int i = 0; i < config.numOfInverters; i++)
+    {
+        printf("Connecting to %s (%s)\n", config.inverters[i]->Ip, config.inverters[i]->Name);
+        connections[i] = modbus_connect_tcp(config.inverters[i]->Ip, config.inverters[i]->Port);
+        if (connections[i] == NULL)
+        {
+            fprintf(stderr, "Connection failed!");
+            return -1;
+        }
+        printf("Connected!\n");
+    }
+
+    /**
+     * Timestamp prep
+     */
+    unsigned long currentTimestamp = time(NULL), nextTimestamp = 0;
+    // Round timestamp
+    currentTimestamp -= (currentTimestamp % interval);
+
+    /**
+     * Main loop
+     */
+    int rc = 0;
+    for (unsigned long long i = 0; !run; i++)
+    {
+        nextTimestamp = currentTimestamp + interval;
+
+        for (int i = 0; i < config.numOfInverters; i++)
+        {
+            rc = processInverter(config.inverters[i], connections[i]);
+            if (rc < 0)
+                fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n", rc, config.inverters[i]->Name);
+        }
+
+        if (printInverters)
+        {
+            printf("\n\nTimestamp: %lu\n", currentTimestamp);
+            for (int i = 0; i < config.numOfInverters; i++)
+                printInverter(config.inverters[i]);
+        }
+
+        /**
+         * Export to InfluxDB using the same timestamp
+         */
+        for (int i = 0; i < config.numOfInverters; i++)
+            exportToInflux(ifx, config.inverters[i], currentTimestamp);
+
+        long waitTime = nextTimestamp - time(NULL);
+        if (waitTime < 0)
+        {
+            fprintf(stderr, "Warning: Modbus fetching took longer than %d seconds!\n", interval);
+            waitTime = 0;
+        }
+
+        sleep(waitTime);
+        // Increase currentTimestamp
+        currentTimestamp += interval;
+    }
+
+    for (int i = 0; i < config.numOfInverters; i++)
+    {
+        modbus_close(connections[i]);
+        free(connections[i]);
+    }
+    free(connections);
+
+    return 0;
+}
 
 /**
  * Requests everything needed from an inverter and pushes to influxDB
@@ -73,8 +301,8 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
     modbus_free_registers(regs);
 
-    /** 
-     * Total Yield and Day Yield 
+    /**
+     * Total Yield and Day Yield
      */
     regs = modbus_read_registers(t, 30529, 54);
     if (regs == NULL)
@@ -114,14 +342,14 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
         return -5;
     }
 
-    inv->GridFreq       = ((double)getValue(regs, 30803, 30803) / 100); // Hz
-    inv->ReactivePower  = getValue(regs, 30803, 30805);    // VAr
-    inv->ApparentPower  = getValue(regs, 30803, 30813);    // VA
+    inv->GridFreq = ((double)getValue(regs, 30803, 30803) / 100); // Hz
+    inv->ReactivePower = getValue(regs, 30803, 30805);            // VAr
+    inv->ApparentPower = getValue(regs, 30803, 30813);            // VA
 
     modbus_free_registers(regs);
 
-    /** 
-     * TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 
+    /**
+     * TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3
      */
     regs = modbus_read_registers(t, 30953, 30);
     if (regs == NULL)
@@ -147,10 +375,10 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
     /**
      * Limited view since inverter only sends 0xFFFFFFFF except for the following values
      */
-    if (inv->GridRelay == SMA_GRID_RELAY_NANSTT )
+    if (inv->GridRelay == SMA_GRID_RELAY_NANSTT)
     {
         return ifx
-            .tag("inverter",inv->Name)
+            .tag("inverter", inv->Name)
 
             .meas("status")
             .field("condition", inv->Condition)
@@ -168,7 +396,7 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
 
     return ifx
         .tag("inverter", inv->Name)
-        
+
         .meas("power")
         .field("Pac1", inv->Pac1)
         .field("Pdc1", inv->Pdc1)
@@ -205,88 +433,14 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
 
 void printInverter(SMA_Inverter *inv)
 {
-    printf("\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
-        inv->Name, inv->Ip);
+    printf("\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n",
+           inv->Name, inv->Ip);
 
     printf("Total yield: %luWh\n", inv->TotalYield);
     printf("Day yield: %luWh\n", inv->DayYield);
     printf("Inverter\n\tCondition: %li\n\tTemperature: %fC\n\tHeatsink: %fC\n", inv->Condition, inv->Temperature, inv->HeatsinkTemperature);
     printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
     printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
-    printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
+    printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Uac1, inv->Iac1, inv->Pac1);
     printf("\tGridFreq: %f\n\tGridRelay: %lu\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->GridRelay, inv->ReactivePower, inv->ApparentPower);
-}
-
-int main(void)
-{
-    /**
-     * Connect to InfluxDB
-     */
-    Influx ifx(INFLUX_HOST, INFLUX_PORT, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
-    if (ifx.connectNow() != 0)
-    {
-        fprintf(stderr, "main: InfluxDB connection failed\n");
-        return -1;
-    }
-
-    // Connect to clients
-    SMA_Inverter sb3000 = {
-        .Ip = strdup("172.19.1.38"),
-        .Port = 502,
-        .Name = strdup("SB3000TL-21"),
-    };
-    modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
-    puts("Connected to SB3000TL");
-
-    SMA_Inverter sb4000 = {
-        .Ip = strdup("172.19.1.65"),
-        .Port = 502,
-        .Name = strdup("SB4000TL-21"),
-    };
-    modbus_t *sb4000_conn = modbus_connect_tcp(sb4000.Ip, sb4000.Port);
-    puts("Connected to SB4000TL");
-
-    // TODO  HANDLE UNIX SIGNALS
-    unsigned long currentTimestamp = time(NULL), nextTimestamp = 0;
-    // Round timestamp
-    currentTimestamp -= (currentTimestamp % INTERVAL);
-    for (unsigned long long i = 0;; i++)
-    {
-        nextTimestamp = currentTimestamp + INTERVAL;
-
-        int rc = processInverter(&sb3000, sb3000_conn);
-        if (rc < 0)
-            fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n",rc, sb3000.Name);
-
-        rc = processInverter(&sb4000, sb4000_conn);
-        if (rc < 0)
-            fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n",rc, sb4000.Name);
-
-#if SHOW
-        printf("\n\nTimestamp: %lu\n", currentTimestamp);
-        printInverter(&sb3000);
-        printInverter(&sb4000);
-#endif
-        /**
-         * Export to InfluxDB using the same timestamp
-         */
-        exportToInflux(ifx, &sb3000, currentTimestamp);
-        exportToInflux(ifx, &sb4000, currentTimestamp);
-
-        long waitTime = nextTimestamp - time(NULL);
-        if (waitTime < 0)
-        {
-            fprintf(stderr, "Warning: Modbus fetching took longer than %d seconds!\n", INTERVAL);
-            waitTime = 0;
-        }
-
-        sleep(waitTime);
-        // Increase currentTimestamp
-        currentTimestamp += INTERVAL;
-    }
-
-    modbus_close(sb3000_conn);
-    modbus_close(sb4000_conn);
-
-    return 0;
 }
