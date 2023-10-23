@@ -62,8 +62,7 @@ void sigint_handler(int sig)
  */
 int readConfigFile(char *path, Config *config)
 {
-    // TODO: path = path. so we can specifiy the config file location
-    FILE *file = fopen("./config", "r");
+    FILE *file = fopen(path, "r");
     if (file == NULL)
     {
         return -1;
@@ -163,6 +162,10 @@ int main(int argc, char *argv[], char *envp[])
      * Read Config file
      */
     Config config;
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <configfile-path> [-v]\n", argv[0]);
+        return -1;
+    }
     readConfigFile(argv[1], &config);
     unsigned int interval = config.Interval; // 15;
 
@@ -170,8 +173,10 @@ int main(int argc, char *argv[], char *envp[])
     /**
      * Command line argument verbose
      */
-    if (strncmp(argv[1], "-v", 2) == 0)
-        printInverters = 1;
+    if (argc >= 3) {
+        if (strncmp(argv[2], "-v", 2) == 0)
+            printInverters = 1;
+    }
 
     /**
      * Connect to InfluxDB
