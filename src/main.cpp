@@ -16,7 +16,7 @@
 
 // Every x seconds
 #define INTERVAL 15
-#define SHOW 0 
+#define SHOW 1
 
 /**
  * Influx stuff
@@ -67,7 +67,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
     regs = modbus_read_registers(t, 30211, 16);
     if (regs == NULL)
     {
-        return -1;
+        return -2;
     }
     inv->GridRelay = getValue(regs, 30211, 30217);
 
@@ -79,7 +79,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
     regs = modbus_read_registers(t, 30529, 54);
     if (regs == NULL)
     {
-        return -1;
+        return -3;
     }
 
     inv->TotalYield = getValue(regs, 30529, 30529);
@@ -94,7 +94,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
     regs = modbus_read_registers(t, 30769, 52);
     if (regs == NULL)
     {
-        return -1;
+        return -4;
     }
     inv->Udc1 = ((double)getValue(regs, 30769, 30771) / 100);
     inv->Idc1 = ((double)getValue(regs, 30769, 30769) / 1000);
@@ -111,7 +111,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
     regs = modbus_read_registers(t, 30803, 10);
     if (regs == NULL)
     {
-        return -1;
+        return -5;
     }
 
     inv->GridFreq       = ((double)getValue(regs, 30803, 30803) / 100); // Hz
@@ -126,7 +126,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
     regs = modbus_read_registers(t, 30953, 30);
     if (regs == NULL)
     {
-        return -1;
+        return -6;
     }
 
     inv->Temperature = getValue(regs, 30953, 30953) / 10;
@@ -243,13 +243,18 @@ int main(void)
     // TODO  HANDLE UNIX SIGNALS
     unsigned long currentTimestamp = time(NULL);
     // Round timestamp
-    currentTimestamp -= (currentTimestamp % INTERVAL);
+    // currentTimestamp -= (currentTimestamp % INTERVAL);
     for (unsigned long long i = 0;; i++)
     {
-        currentTimestamp += INTERVAL;
+        currentTimestamp = time(NULL);
 
-        processInverter(&sb3000, sb3000_conn);
-        processInverter(&sb4000, sb4000_conn);
+        int rc = processInverter(&sb3000, sb3000_conn);
+        if (rc < 0)
+            fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n",rc, sb3000.Name);
+
+        rc = processInverter(&sb4000, sb4000_conn);
+        if (rc < 0)
+            fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n",rc, sb4000.Name);
 
 #if SHOW
         printInverter(&sb3000);
