@@ -32,4 +32,15 @@ typedef struct {
     long unsigned ApparentPower;// 30813
 } SMA_Inverter;
 
+enum {
+    SMA_INVERTER_CONDITION_FAULT = 35,
+    SMA_INVERTER_CONDITION_OFF  = 303,
+    SMA_INVERTER_CONDITION_OK   = 307,
+    SMA_INVERTER_CONDITION_WARN = 455,
+
+    SMA_GRID_RELAY_CLOSED   = 51,
+    SMA_GRID_RELAY_OPEN     = 311,
+    SMA_GRID_RELAY_NANSTT   = 16777213,
+};
+
 #endif

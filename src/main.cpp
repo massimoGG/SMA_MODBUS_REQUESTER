@@ -144,10 +144,20 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
-    // can be a way to see if the inverter is off? 
-    if (inv->Temperature > 10000)
+    // If Inverter is producing nothing 
+    if (inv->GridRelay != SMA_GRID_RELAY_CLOSED )
     {
-        return -1;
+        return ifx
+            .tag("inverter",inv->Name)
+
+            .meas("status")
+            .field("condition", inv->Condition)
+
+            .meas("grid")
+            .field("GridRelay", inv->GridRelay)
+
+            .timestamp(currentTimestamp)
+            .post();
     }
 
     return ifx
