@@ -146,7 +146,6 @@ int readConfigFile(char *path, Config *config)
 
 int main(int argc, char *argv[], char *envp[])
 {
-    printf("env %s\n", envp[0]);
     /**
      * Prepare interrupt signal
      */
@@ -171,8 +170,6 @@ int main(int argc, char *argv[], char *envp[])
     /**
      * Command line argument verbose
      */
-    if (argc != 2)
-        return -1; // TODO Show usage
     if (strncmp(argv[1], "-v", 2) == 0)
         printInverters = 1;
 
