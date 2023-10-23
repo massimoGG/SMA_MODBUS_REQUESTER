@@ -16,6 +16,7 @@
 
 // Every x seconds
 #define INTERVAL 15
+#define SHOW 0 
 
 /**
  * Influx stuff
@@ -36,15 +37,46 @@ void printInverter(SMA_Inverter *pinv);
  */
 int processInverter(SMA_Inverter *inv, modbus_t *t)
 {
-    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m--------------------------\n", 
-        inv->Name, inv->Ip);
-
-    // modbus_t *t = modbus_connect_tcp(inv.Ip, 502);
+    modbus_regs regs;
 
     t->slave = 0x03; // 0 = broadcast, 3= my inverters
 
-    /** Total Yield and Day Yield */
-    modbus_regs regs = modbus_read_registers(t, 30529, 54);
+    /**
+     * Inverter Condition
+     * 	35: Fault (Alm)
+     *  303: Off (Off)
+     *  307: Ok (Ok)
+     *  455: Warning (Wrn)
+     * */
+    regs = modbus_read_registers(t, 30201, 4);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->Condition = getValue(regs, 30201, 30201);
+
+    modbus_free_registers(regs);
+
+    /**
+     * Grid Relay
+     * 	51: Closed (Cls)
+     *  311: Open (Opn)
+     *  16777213: Information not available (NaNStt)
+     */
+    regs = modbus_read_registers(t, 30211, 16);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+    inv->GridRelay = getValue(regs, 30211, 30217);
+
+    modbus_free_registers(regs);
+
+    /** 
+     * Total Yield and Day Yield 
+     */
+    regs = modbus_read_registers(t, 30529, 54);
     if (regs == NULL)
     {
         return -1;
@@ -73,7 +105,24 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
     modbus_free_registers(regs);
 
-    /** TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 */
+    /**
+     * Grid Freq, Reactive Power, Apparent Power
+     */
+    regs = modbus_read_registers(t, 30803, 10);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->GridFreq       = ((double)getValue(regs, 30803, 30803) / 100); // Hz
+    inv->ReactivePower  = getValue(regs, 30803, 30805);    // VAr
+    inv->ApparentPower  = getValue(regs, 30803, 30813);    // VA
+
+    modbus_free_registers(regs);
+
+    /** 
+     * TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 
+     */
     regs = modbus_read_registers(t, 30953, 30);
     if (regs == NULL)
     {
@@ -95,10 +144,20 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
-    return ifx.meas("measurement")
-        .tag("inverter", inv->Name)
+    // can be a way to see if the inverter is off? 
+    if (inv->Temperature > 10000)
+    {
+        return -1;
+    }
+
+    return ifx
+        .clear()
+        .meas("Modbus")
+        .tag("Inverter", inv->Name)
+        .field("Condition", inv->Condition)
 
         .field("Temperature", inv->Temperature)
+        // .field("Heatsink", inv->HeatsinkTemperature)
         .field("DayYield", inv->DayYield)
         .field("TotalYield", inv->TotalYield)
 
@@ -113,18 +172,28 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
         .field("Iac1", inv->Iac1)
         .field("Idc1", inv->Idc1)
         .field("Idc2", inv->Idc2)
+
+        .field("GridRelay", inv->GridRelay)
+        .field("GridFreq", inv->GridFreq)
+        .field("ReactivePower", inv->ReactivePower)
+        .field("ApparentPower", inv->ApparentPower)
+
         .timestamp(currentTimestamp)
         .post();
 }
 
 void printInverter(SMA_Inverter *inv)
 {
+    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
+        inv->Name, inv->Ip);
+
     printf("Total yield: %luWh\n", inv->TotalYield);
     printf("Day yield: %luWh\n", inv->DayYield);
-    printf("Inverter\n\tTemperature: %fC\n", inv->Temperature);
+    printf("Inverter\n\tTemperature: %fC\tHeatsink: %fC\n", inv->Temperature, inv->HeatsinkTemperature);
     printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
     printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
     printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
+    printf("\tGridFreq: %f\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->ReactivePower, inv->ApparentPower);
 }
 
 int main(void)
@@ -164,9 +233,10 @@ int main(void)
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);
 
+#if SHOW
         printInverter(&sb3000);
         printInverter(&sb4000);
-
+#endif
         /**
          * Export to InfluxDB using the same timestamp
          */

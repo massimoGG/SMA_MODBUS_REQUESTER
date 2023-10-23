@@ -26,7 +26,7 @@ private:
     std::string bkt_;
     std::string tkn_;
 
-    std::stringstream lines_;
+    std::string body;
     std::vector<std::string> fields;
     std::string timestamp_;
 
@@ -70,14 +70,21 @@ public:
             ::close(sockfd);
     }
 
+    Influx &clear()
+    {
+        body.clear();
+        fields.clear();
+        return *this;
+    }
+
     Influx &meas(const std::string name)
     {
-        lines_ << name;
+        body += name;
         return *this;
     }
     Influx &tag(const std::string tagKey, const std::string tagValue)
     {
-        lines_ << "," << tagKey << "=" << tagValue << " ";
+        body += "," + tagKey + "=" + tagValue + " ";
         return *this;
     }
 
@@ -104,7 +111,6 @@ public:
 
     int post()
     {
-        std::string body = lines_.str();
         // Construct fields section
         for (size_t i = 0; i < fields.size(); i++)
         {
@@ -125,6 +131,8 @@ public:
         // Combine header and body
         buffer = std::string(header) + body;
         size_t buffer_len = buffer.length();
+
+        // fprintf(stdout, "influxdb: %s\n",buffer.c_str());
 
         int rc = write(sockfd, buffer.c_str(), buffer_len);
         if (rc < len)

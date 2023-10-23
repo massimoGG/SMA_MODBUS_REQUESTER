@@ -16,6 +16,15 @@
 
 int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length);
 
+void printBuffer(uint8_t *rsp, size_t size)
+{
+    for (size_t i = 0; i < size; i++)
+    {
+        printf("[%.2X]", rsp[i]);
+    }
+    printf("\n");
+}
+
 /**
  * Prepares modbus type, connects to target
  * @return modbus_type
@@ -25,7 +34,7 @@ modbus_t *modbus_connect_tcp(const char *ip, unsigned short port)
     modbus_t *mb = (modbus_t *)malloc(sizeof(modbus_t));
     memset(mb, 0, sizeof(modbus_t));
 
-    strncpy(mb->ip, ip, strlen(ip));
+    mb->ip = strdup(ip);
     mb->port = port; // INET6_ADDRSTRLEN
     mb->transaction_id = -1;
 
@@ -114,44 +123,31 @@ int modbus_build_request_header(modbus_t *mb, unsigned char function, unsigned s
 }
 
 /**
- * DEPRECATED
- * @param rsp Response buffer from Modbus
- * @param begin Address that we requested
- * @param indexAddress Address we want
- *
- */
-unsigned long getU32(uint8_t *rsp, unsigned short begin, unsigned short indexAddress)
-{
-    // !WARN SMA REGISTER IS 2 BYTES BIG ENDIAN.
-    // SO  30529 -> 30531 = 4 bytes in between because U32
-    // Header offset = 7 so begin at 8
-    unsigned char sma_registers_offset = (indexAddress - begin) / 2;
-    unsigned char bytes_registers_offset = sma_registers_offset * 4;
-    unsigned char offset = 8 + bytes_registers_offset + 1; // I have no fucking clue what the 0x6C is after the function code.
-
-#if DEBUG
-    printf("SMA register offset: %d\n", sma_registers_offset);
-    printf("bytes register offset: %d\n", bytes_registers_offset);
-
-    printf("Offset: %d\t -> %x\n", offset, rsp[offset]);
-#endif
-    return (rsp[offset] << 24) | (rsp[offset + 1] << 16) | (rsp[offset + 2] << 8) | (rsp[offset + 3] & 0xFF);
-}
-
-/**
+ * Decodes SMA's "FIX0" format
  * @param rsp Response buffer from Modbus
  * @param begin Address that we requested from Modbus
  * @param indexAddress Address we want
  */
-unsigned long getValue(modbus_regs mrsp, unsigned short begin, unsigned short indexAddress)
+unsigned long getValue(modbus_regs rsp, unsigned short begin, unsigned short indexAddress)
 {
-    uint8_t *rsp = *mrsp + MODBUS_DATA_OFFSET;
+#if DEBUG
+    printf("getValue: Length: %d\n", len);
+    printBuffer(rsp, len);
+#endif
+
     unsigned char offset = (indexAddress - begin) / 2 * 4;
+    modbus_regs copy_rsp = rsp;
+    copy_rsp += MODBUS_DATA_OFFSET;
 
 #if DEBUG
-    printf("getValue\tOffset: %d\t -> [%.2X]\n", offset, rsp[offset]);
+    // uint8_t *rsp = *mrsp;
+    unsigned char len = rsp[0];
+
+    printf("getValue: Offset: %d\n",offset);
+    printBuffer(copy_rsp, len-MODBUS_DATA_OFFSET);
 #endif
-    return (rsp[offset] << 24) | (rsp[offset + 1] << 16) | (rsp[offset + 2] << 8) | (rsp[offset + 3] & 0xFF);
+
+    return (copy_rsp[offset] << 24) | (copy_rsp[offset + 1] << 16) | (copy_rsp[offset + 2] << 8) | (copy_rsp[offset + 3]);
 }
 
 /**
@@ -166,16 +162,15 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
 {
     int rc, req_length;
     uint8_t req[MODBUS_TCP_REQ_LENGTH];
-    uint8_t *rsp = (uint8_t *) malloc(sizeof(uint8_t) * MODBUS_MAX_FRAME_LENGTH);
-    modbus_regs mrsp = &rsp;
+
+    uint8_t *rsp = (uint8_t *)malloc(sizeof(uint8_t) * MODBUS_MAX_FRAME_LENGTH);
+    memset((void *)rsp, 0, sizeof(uint8_t) * MODBUS_MAX_FRAME_LENGTH);
 
     req_length = modbus_build_request_header(mb, MODBUS_READ_HOLDING_REGISTERS, addr, qoc, req);
 
 #if DEBUG
     printf("Sending\t\t");
-    for (int i = 0; i < req_length; i++)
-        printf("[%.2X]", req[i]);
-    printf("\n");
+    printBuffer(rsp, req_length);
 #endif
 
     /**
@@ -192,21 +187,48 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
     /**
      * Receive packet
      */
-    int func_code = _modbus_receive(mb, rsp, MODBUS_MAX_FRAME_LENGTH);
-    if (func_code < 0)
+    int rb = _modbus_receive(mb, rsp, MODBUS_MAX_FRAME_LENGTH);
+    if (rb <= 0)
     {
-        // An error occured after all retries -> abort
+        fprintf(stderr, "modbus: read abort\n");
+        return NULL;
+    }
+    // Little hack:  Set first byte to number of received bytes
+    rsp[0] = rb & 0x000000FF;
+
+    /**
+     * Decode Function code
+     */
+    unsigned char func_code = rsp[7];
+
+#if DEBUG
+    printf("read_registers: Received %d bytes: function code: %d\n", rb, func_code);
+#endif
+    // Exception Function code MSB bit = 1 = 0x80 higher
+    if ((func_code >> 7) == 0x01)
+    {
+        switch (func_code & 0x0F)
+        {
+        case MODBUS_EXCEPTION_ILLEGAL_FUNCTION:
+            printf("read_registers: Illegal function\n");
+            break;
+        case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
+            printf("read_registers: Illegal Data Address\n");
+            break;
+        case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
+            printf("read_registers: Illegal Data Value\n");
+            break;
+        default:
+            printf("read_registers: Illegal error : %d\n", func_code);
+        }
         return NULL;
     }
 
 #if DEBUG
     printf("Received\t");
-    for (int i = 0; i < rc; i++)
-        printf("[%.2X]", rsp[i]);
-    printf("\n");
+    printBuffer(rsp, rb);
 #endif
-
-    return mrsp;
+    return rsp;
 }
 
 /**
@@ -215,11 +237,11 @@ modbus_regs modbus_read_registers(modbus_t *mb, int addr, int qoc)
  * @param mb modbus_type
  * @param *rsp Reponse buffer
  * @param rsp_length Length of the buffer
- * @return function code
+ * @return number of received bytes, -1 when failed or 0 when connection closed
  */
 int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length)
 {
-    int rc = 0, func_code = 0;
+    int rc = 0;
 
     struct pollfd pfds[1];
     pfds[0].fd = mb->s;
@@ -246,58 +268,38 @@ int _modbus_receive(modbus_t *mb, uint8_t *rsp, int rsp_length)
             continue;
         }
 
-        // FD is ready to write
         rc = recv(mb->s, (char *)rsp, rsp_length, 0);
+        if (rc == 0)
+        {
+            fprintf(stderr, "modbus: Connection was closed\n");
+            return 0;
+        }
 
         //! WARN: IDK why, but I continously receive only 1 byte 0xFF, so consider as fail
         if (rc <= 1)
         {
+#if DEBUG
             // Error or timeout
             fprintf(stderr, "modbus: read register failed. Retrying %d\n", retry);
+#endif
             // SMA's bullshit implementation
             sleep(MODBUS_SMA_WAIT);
             continue;
         }
-
-        func_code = rsp[7];
-
-#if DEBUG
-        printf("read_registers: Received %d bytes: function code: %d\n", rc, func_code);
-#endif
-
-        // Exception Function code MSB bit = 1 = 0x80 higher
-        if ((func_code >> 7) == 0x01)
-        {
-            switch (func_code & 0x0F)
-            {
-            case MODBUS_EXCEPTION_ILLEGAL_FUNCTION:
-                printf("read_registers: Illegal function\n");
-                break;
-            case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
-                printf("read_registers: Illegal Data Address\n");
-                break;
-            case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
-                printf("read_registers: Illegal Data Value\n");
-                break;
-            default:
-                printf("read_registers: Illegal error : %d\n", func_code);
-            }
-            return -1;
-        }
-
+        // Reaching here means that we successfully received data
         break;
     }
 
     if (retry >= RETRIES)
-        return -2;
-
-    return func_code;
+        return -1;
+        
+    // Return number of received bytes
+    return rc;
 }
 
 void modbus_free_registers(modbus_regs regs)
 {
-    // Figure out pointer to pointer
-    free(*regs);
+    free(regs);
 }
 
 void modbus_close(modbus_t *t)
