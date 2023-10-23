@@ -144,14 +144,20 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
-    // If Inverter is producing nothing 
-    if (inv->GridRelay != SMA_GRID_RELAY_CLOSED )
+    /**
+     * Limited view since inverter only sends 0xFFFFFFFF except for the following values
+     */
+    if (inv->GridRelay == SMA_GRID_RELAY_NANSTT )
     {
         return ifx
             .tag("inverter",inv->Name)
 
             .meas("status")
             .field("condition", inv->Condition)
+
+            .meas("yield")
+            .field("DayYield", inv->DayYield)
+            .field("TotalYield", inv->TotalYield)
 
             .meas("grid")
             .field("GridRelay", inv->GridRelay)
@@ -199,16 +205,16 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
 
 void printInverter(SMA_Inverter *inv)
 {
-    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
+    printf("\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
         inv->Name, inv->Ip);
 
     printf("Total yield: %luWh\n", inv->TotalYield);
     printf("Day yield: %luWh\n", inv->DayYield);
-    printf("Inverter\n\tTemperature: %fC\tHeatsink: %fC\n", inv->Temperature, inv->HeatsinkTemperature);
+    printf("Inverter\n\tCondition: %li\n\tTemperature: %fC\n\tHeatsink: %fC\n", inv->Condition, inv->Temperature, inv->HeatsinkTemperature);
     printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
     printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
     printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
-    printf("\tGridFreq: %f\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->ReactivePower, inv->ApparentPower);
+    printf("\tGridFreq: %f\n\tGridRelay: %lu\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->GridRelay, inv->ReactivePower, inv->ApparentPower);
 }
 
 int main(void)
@@ -241,12 +247,12 @@ int main(void)
     puts("Connected to SB4000TL");
 
     // TODO  HANDLE UNIX SIGNALS
-    unsigned long currentTimestamp = time(NULL);
+    unsigned long currentTimestamp = time(NULL), nextTimestamp = 0;
     // Round timestamp
-    // currentTimestamp -= (currentTimestamp % INTERVAL);
+    currentTimestamp -= (currentTimestamp % INTERVAL);
     for (unsigned long long i = 0;; i++)
     {
-        currentTimestamp = time(NULL);
+        nextTimestamp = currentTimestamp + INTERVAL;
 
         int rc = processInverter(&sb3000, sb3000_conn);
         if (rc < 0)
@@ -257,6 +263,7 @@ int main(void)
             fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n",rc, sb4000.Name);
 
 #if SHOW
+        printf("\n\nTimestamp: %lu\n", currentTimestamp);
         printInverter(&sb3000);
         printInverter(&sb4000);
 #endif
@@ -266,7 +273,16 @@ int main(void)
         exportToInflux(ifx, &sb3000, currentTimestamp);
         exportToInflux(ifx, &sb4000, currentTimestamp);
 
-        sleep(INTERVAL);
+        long waitTime = nextTimestamp - time(NULL);
+        if (waitTime < 0)
+        {
+            fprintf(stderr, "Warning: Modbus fetching took longer than %d seconds!\n", INTERVAL);
+            waitTime = 0;
+        }
+
+        sleep(waitTime);
+        // Increase currentTimestamp
+        currentTimestamp += INTERVAL;
     }
 
     modbus_close(sb3000_conn);
