@@ -244,6 +244,8 @@ int main(void)
     for (unsigned long long i = 0;; i++)
     {
         unsigned long currentTimestamp = time(NULL);
+        // Round per interval seconds
+        currentTimestamp -= (currentTimestamp % INTERVAL);
 
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);
