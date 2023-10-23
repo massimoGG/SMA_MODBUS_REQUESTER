@@ -170,6 +170,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
  * @param ifx Influx class to initialized InfluxDB
  * @param inv Pointer to SMA_Inverter struct that is being exported to InfluxDB
  * @param currentTimestamp the current time in seconds precision unix time
+ * @return Return value of post()
  */
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {

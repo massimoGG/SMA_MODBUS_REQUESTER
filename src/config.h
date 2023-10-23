@@ -64,7 +64,7 @@ int readConfigFile(char *path, Config *config)
             config->InfluxPort = atoi(line + 12);
 
         if (strncmp(line, "INFLUX_TOKEN", 12) == 0)
-            config->InfluxToken = strdup(line + 14);
+            config->InfluxToken = strdup(line + 13);
 
         if (strncmp(line, "INFLUX_ORG", 10) == 0)
             config->InfluxOrg = strdup(line + 11);

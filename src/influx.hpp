@@ -18,6 +18,7 @@ class Influx
 {
 private:
     int sockfd = 0;
+    int verbosity = 0;
     static const unsigned int bufsize = 8196;
 
     std::string host_;
@@ -72,7 +73,12 @@ public:
         return 0;
     }
 
-    void close(void)
+    void setVerbosity(int verbosity)
+    {
+        this->verbosity = verbosity;
+    }
+
+    void closeDB(void)
     {
         if (sockfd > 0)
             ::close(sockfd);
@@ -137,6 +143,9 @@ public:
         return *this;
     }
 
+    /**
+     * @return return value of write() to socket
+     */
     int post()
     {
         body = "";
@@ -190,7 +199,8 @@ public:
         buffer = std::string(header) + body;
         size_t buffer_len = buffer.length();
 
-        // fprintf(stdout, "influxdb: %s\n",buffer.c_str());
+        if (verbosity)
+            fprintf(stdout, "influxdb: %s\n",buffer.c_str());
 
         int rc = write(sockfd, buffer.c_str(), buffer_len);
         if (rc < len)
@@ -207,9 +217,18 @@ public:
                 return -1;
         }
 
+        /**
+         * TODO: Validated influx request
+         */
+        if (verbosity) {
+            char buf[512];
+            int rb = read(sockfd, buf, 512);
+            printf("Rad: %d bytes -> %s\n", rb, buf);
+        }
+
         measurements.clear();
 
-        return 0;
+        return rc;
     }
 };
 

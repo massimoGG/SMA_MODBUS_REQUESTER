@@ -55,19 +55,20 @@ int main(int argc, char *argv[], char *envp[])
     readConfigFile(argv[1], &config);
     unsigned int interval = config.Interval; // 15;
 
-    int printInverters = 0;
+    int printVerbose = 0;
     /**
      * Command line argument verbose
      */
     if (argc >= 3) {
         if (strncmp(argv[2], "-v", 2) == 0)
-            printInverters = 1;
+            printVerbose = 1;
     }
 
     /**
      * Connect to InfluxDB
      */
     Influx ifx(config.InfluxHost, config.InfluxPort, config.InfluxOrg, config.InfluxBucket, config.InfluxToken);
+    ifx.setVerbosity(printVerbose);
     if (ifx.connectNow() != 0)
     {
         fprintf(stderr, "main: InfluxDB connection failed\n");
@@ -112,7 +113,7 @@ int main(int argc, char *argv[], char *envp[])
                 fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n", rc, config.inverters[i]->Name);
         }
 
-        if (printInverters)
+        if (printVerbose)
         {
             printf("\n\nTimestamp: %lu\n", currentTimestamp);
             for (int i = 0; i < config.numOfInverters; i++)
@@ -122,8 +123,15 @@ int main(int argc, char *argv[], char *envp[])
         /**
          * Export to InfluxDB using the same timestamp
          */
+        if (printVerbose)
+            printf("Exporting to InfluxDB.\n");
         for (int i = 0; i < config.numOfInverters; i++)
-            exportToInflux(ifx, config.inverters[i], currentTimestamp);
+        {
+            int rc = exportToInflux(ifx, config.inverters[i], currentTimestamp);
+            if (printVerbose)
+                printf("exportToInflux: %d\n",rc);
+        }
+            
 
         long waitTime = nextTimestamp - time(NULL);
         if (waitTime < 0)
@@ -136,6 +144,8 @@ int main(int argc, char *argv[], char *envp[])
         // Increase currentTimestamp
         currentTimestamp += interval;
     }
+
+    ifx.closeDB();
 
     for (int i = 0; i < config.numOfInverters; i++)
     {
