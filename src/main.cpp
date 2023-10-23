@@ -151,28 +151,33 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
     }
 
     return ifx
-        .clear()
-        .meas("Modbus")
-        .tag("Inverter", inv->Name)
-        .field("Condition", inv->Condition)
-
-        .field("Temperature", inv->Temperature)
-        // .field("Heatsink", inv->HeatsinkTemperature)
-        .field("DayYield", inv->DayYield)
-        .field("TotalYield", inv->TotalYield)
-
+        .tag("inverter", inv->Name)
+        
+        .meas("power")
         .field("Pac1", inv->Pac1)
         .field("Pdc1", inv->Pdc1)
         .field("Pdc2", inv->Pdc2)
 
+        .meas("voltage")
         .field("Uac1", inv->Uac1)
         .field("Udc1", inv->Udc1)
         .field("Udc2", inv->Udc2)
 
+        .meas("current")
         .field("Iac1", inv->Iac1)
         .field("Idc1", inv->Idc1)
         .field("Idc2", inv->Idc2)
 
+        .meas("status")
+        .field("condition", inv->Condition)
+        .field("temperature", inv->Temperature)
+        // .field("Heatsink", inv->HeatsinkTemperature)
+
+        .meas("yield")
+        .field("DayYield", inv->DayYield)
+        .field("TotalYield", inv->TotalYield)
+
+        .meas("grid")
         .field("GridRelay", inv->GridRelay)
         .field("GridFreq", inv->GridFreq)
         .field("ReactivePower", inv->ReactivePower)

@@ -27,7 +27,15 @@ private:
     std::string tkn_;
 
     std::string body;
-    std::vector<std::string> fields;
+    std::string tags;
+
+    typedef struct {
+        std::string name;
+        std::vector<std::string> fields;
+    } Measurement;
+    std::vector<Measurement> measurements;
+    
+    // std::vector<std::string> fields;
     std::string timestamp_;
 
 public:
@@ -43,7 +51,7 @@ public:
     int connectNow()
     {
         fprintf(stdout, "influxdb: Connecting.\n");
-        sockfd = sockfd ? sockfd: socket(AF_INET, SOCK_STREAM, 0);
+        sockfd = sockfd ? sockfd : socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd <= 0)
         {
             fprintf(stderr, "influxdb: socket failed\n");
@@ -72,35 +80,55 @@ public:
 
     Influx &clear()
     {
+        measurements.clear();
         body.clear();
-        fields.clear();
         return *this;
     }
 
+    /**
+     * Create new measurement
+     */
     Influx &meas(const std::string name)
     {
-        body += name;
+        measurements.push_back(Measurement {
+            .name = name,
+        });
         return *this;
     }
+    /**
+     * Only allow 1 tag
+     */
     Influx &tag(const std::string tagKey, const std::string tagValue)
     {
-        body += "," + tagKey + "=" + tagValue + " ";
+        tags = "," + tagKey + "=" + tagValue;
         return *this;
     }
 
+    /**
+     * Append field key-value to measurement map
+     **/
     Influx &field(const std::string fieldKey, const char *fieldValue)
     {
-        fields.push_back(fieldKey + "=" + fieldValue);
+        Measurement *m = &(measurements.back());
+        m->fields.push_back(
+            fieldKey + "=" + fieldValue
+        );
         return *this;
     }
     Influx &field(const std::string fieldKey, const unsigned long fieldValue)
     {
-        fields.push_back(fieldKey + "=" + std::to_string(fieldValue) + "i");
+        Measurement *m = &(measurements.back());
+        m->fields.push_back(
+            fieldKey + "=" + std::to_string(fieldValue) + "i"
+        );
         return *this;
     }
     Influx &field(const std::string fieldKey, const double fieldValue)
     {
-        fields.push_back(fieldKey + "=" + std::to_string(fieldValue));
+        Measurement *m = &(measurements.back());
+        m->fields.push_back(
+            fieldKey + "=" + std::to_string(fieldValue)
+        );
         return *this;
     }
     Influx &timestamp(const unsigned long long time)
@@ -111,16 +139,46 @@ public:
 
     int post()
     {
-        // Construct fields section
-        for (size_t i = 0; i < fields.size(); i++)
+        body = "";
+
+        /**
+         * Construct body
+         */
+        for (const Measurement &measurement : measurements)
         {
-            body += fields[i];
-            if (i + 1 < fields.size())
+            // New measurement
+            std::string line;
+            line += measurement.name + tags + " ";
+
+            // Iterate through fields vector
+            // for (const std::string &field : measurement.fields)
+            for (size_t i=0; i<measurement.fields.size(); i++)
             {
-                body += ",";
+                const std::string field = measurement.fields[i];
+
+                // Append field to fields line
+                line += field;
+
+                // If not last, add comma
+                if (i+1 < measurement.fields.size())
+                    line += ",";
             }
+
+            line += " " + timestamp_ + "\n";
+            body += line;
         }
-        body += " " + timestamp_;
+        
+
+        // // Construct fields section
+        // for (size_t i = 0; i < fields.size(); i++)
+        // {
+        //     body += fields[i];
+        //     if (i + 1 < fields.size())
+        //     {
+        //         body += ",";
+        //     }
+        // }
+        // 
 
         char header[512];
         std::string buffer;
@@ -148,6 +206,8 @@ public:
             else
                 return -1;
         }
+
+        measurements.clear();
 
         return 0;
     }
