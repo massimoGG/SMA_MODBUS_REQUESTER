@@ -38,11 +38,12 @@ int main(int argc, char *argv[], char *envp[])
     sa_int.sa_handler = sigint_handler;
     sa_int.sa_flags = SA_RESTART;
 
+/*
     if ((sigaction(SIGINT, &sa_int, NULL) == -1))
     {
         fprintf(stderr, "sigaction failed\n");
         return -1;
-    }
+    }*/
 
     /**
      * Read Config file
