@@ -131,6 +131,10 @@ int main(int argc, char *argv[], char *envp[])
             int rc = exportToInflux(ifx, config.inverters[i], currentTimestamp);
             if (printVerbose)
                 printf("exportToInflux: %d\n",rc);
+            if (rc < 0) {
+                // Kill program. Systemd will restart it :D
+                return -1;
+            }
         }
             
 
