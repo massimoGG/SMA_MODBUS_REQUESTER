@@ -130,6 +130,11 @@ int modbus_build_request_header(modbus_t *mb, unsigned char function, unsigned s
  */
 unsigned long getValue(modbus_regs rsp, unsigned short begin, unsigned short indexAddress)
 {
+#if DEBUG
+    printf("getValue: Length: %d\n", len);
+    printBuffer(rsp, len);
+#endif
+
     unsigned char offset = (indexAddress - begin) / 2 * 4;
     modbus_regs copy_rsp = rsp;
     copy_rsp += MODBUS_DATA_OFFSET;

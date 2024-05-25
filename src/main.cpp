@@ -9,155 +9,247 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <signal.h>
 
 #include "modbus.h"
 #include "sma.h"
 #include "influx.hpp"
-#include "config.h"
 
-volatile sig_atomic_t run = 0;
+// Every x seconds
+#define INTERVAL 15
+/**
+ * Influx stuff
+ */
+#define INFLUX_TOKEN "jj553uNGBo1rHgTuEjb3D-iZhECzs3i99Ubt4S9xAeoccRolxxBGS-rfVXdO2deokw265_FecKYMif-Fwu4NFA=="
+#define INFLUX_HOST "172.17.3.0"
+#define INFLUX_PORT 8086
+#define INFLUX_ORG "massimogg"
+#define INFLUX_BUCKET "solar"
 
-void sigint_handler(int sig);
+int processInverter(SMA_Inverter *pinv, modbus_t *t);
+int exportToInflux(Influx &ifx, SMA_Inverter *pinv, unsigned long currentTimestamp);
+void printInverter(SMA_Inverter *pinv);
 
 /**
- * Interrupt signal, finish last run and stop loop
+ * Requests everything needed from an inverter and pushes to influxDB
+ * @param SMA_Inverter Inverter struct with IP already filled in
  */
-void sigint_handler(int sig)
+int processInverter(SMA_Inverter *inv, modbus_t *t)
 {
-    fprintf(stdout, "Stopping.\n");
-    run = sig;
+    modbus_regs regs;
+
+    t->slave = 0x03; // 0 = broadcast, 3= my inverters
+
+    /**
+     * Inverter Condition
+     * 	35: Fault (Alm)
+     *  303: Off (Off)
+     *  307: Ok (Ok)
+     *  455: Warning (Wrn)
+     * */
+    regs = modbus_read_registers(t, 30201, 4);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->Condition = getValue(regs, 30201, 30201);
+
+    modbus_free_registers(regs);
+
+    /**
+     * Grid Relay
+     * 	51: Closed (Cls)
+     *  311: Open (Opn)
+     *  16777213: Information not available (NaNStt)
+     */
+    regs = modbus_read_registers(t, 30211, 16);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+    inv->GridRelay = getValue(regs, 30211, 30217);
+
+    modbus_free_registers(regs);
+
+    /** 
+     * Total Yield and Day Yield 
+     */
+    regs = modbus_read_registers(t, 30529, 54);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->TotalYield = getValue(regs, 30529, 30529);
+    inv->DayYield = getValue(regs, 30529, 30535);
+
+    modbus_free_registers(regs);
+
+    /**
+     * DC AMP, VOLT, WATT A; AC Watt, L1-3, ACVOLTAGE L1-3
+     * Grid freq, AC_R_POWER_L1-3, AC_A_POWER_L!-3
+     */
+    regs = modbus_read_registers(t, 30769, 52);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+    inv->Udc1 = ((double)getValue(regs, 30769, 30771) / 100);
+    inv->Idc1 = ((double)getValue(regs, 30769, 30769) / 1000);
+    inv->Pdc1 = getValue(regs, 30769, 30773);
+
+    inv->Uac1 = ((double)getValue(regs, 30769, 30783) / 100);
+    inv->Pac1 = getValue(regs, 30769, 30775);
+
+    modbus_free_registers(regs);
+
+    /**
+     * Grid Freq, Reactive Power, Apparent Power
+     */
+    regs = modbus_read_registers(t, 30803, 10);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->GridFreq       = ((double)getValue(regs, 30803, 30803) / 100); // Hz
+    inv->ReactivePower  = getValue(regs, 30803, 30805);    // VAr
+    inv->ApparentPower  = getValue(regs, 30803, 30813);    // VA
+
+    modbus_free_registers(regs);
+
+    /** 
+     * TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 
+     */
+    regs = modbus_read_registers(t, 30953, 30);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->Temperature = getValue(regs, 30953, 30953) / 10;
+
+    inv->Udc2 = ((double)getValue(regs, 30953, 30959) / 100);
+    inv->Idc2 = ((double)getValue(regs, 30953, 30957) / 1000);
+    inv->Pdc2 = getValue(regs, 30953, 30961);
+
+    inv->Iac1 = ((double)getValue(regs, 30953, 30977) / 1000);
+
+    modbus_free_registers(regs);
+
+    return 0;
 }
 
-int main(int argc, char *argv[], char *envp[])
+int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
-    /**
-     * Prepare interrupt signal
-     */
-    struct sigaction sa_int;
-    sa_int.sa_handler = sigint_handler;
-    sa_int.sa_flags = SA_RESTART;
-
-/*
-    if ((sigaction(SIGINT, &sa_int, NULL) == -1))
+    ifx.clear();
+    
+    // can be a way to see if the inverter is off? 
+    if (inv->Temperature > 10000)
     {
-        fprintf(stderr, "sigaction failed\n");
-        return -1;
-    }*/
-
-    /**
-     * Read Config file
-     */
-    Config config;
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <configfile-path> [-v]\n", argv[0]);
         return -1;
     }
-    readConfigFile(argv[1], &config);
-    unsigned int interval = config.Interval; // 15;
 
-    int printVerbose = 0;
-    /**
-     * Command line argument verbose
-     */
-    if (argc >= 3) {
-        if (strncmp(argv[2], "-v", 2) == 0)
-            printVerbose = 1;
-    }
+    return ifx.meas("measurement")
+        .tag("inverter", inv->Name)
+        .field("Condition", inv->Condition)
 
+        .field("Temperature", inv->Temperature)
+        // .field("Heatsink", inv->HeatsinkTemperature)
+        .field("DayYield", inv->DayYield)
+        .field("TotalYield", inv->TotalYield)
+
+        .field("Pac1", inv->Pac1)
+        .field("Pdc1", inv->Pdc1)
+        .field("Pdc2", inv->Pdc2)
+
+        .field("Uac1", inv->Uac1)
+        .field("Udc1", inv->Udc1)
+        .field("Udc2", inv->Udc2)
+
+        .field("Iac1", inv->Iac1)
+        .field("Idc1", inv->Idc1)
+        .field("Idc2", inv->Idc2)
+
+        .field("GridRelay", inv->GridRelay)
+        .field("GridFreq", inv->GridFreq)
+        .field("ReactivePower", inv->ReactivePower)
+        .field("ApparentPower", inv->ApparentPower)
+
+        .timestamp(currentTimestamp)
+        .post();
+}
+
+void printInverter(SMA_Inverter *inv)
+{
+    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
+        inv->Name, inv->Ip);
+
+    printf("Total yield: %luWh\n", inv->TotalYield);
+    printf("Day yield: %luWh\n", inv->DayYield);
+    printf("Inverter\n\tTemperature: %fC\tHeatsink: %fC\n", inv->Temperature, inv->HeatsinkTemperature);
+    printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
+    printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
+    printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
+    printf("\tGridFreq: %f\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->ReactivePower, inv->ApparentPower);
+}
+
+int main(void)
+{
     /**
      * Connect to InfluxDB
      */
-    Influx ifx(config.InfluxHost, config.InfluxPort, config.InfluxOrg, config.InfluxBucket, config.InfluxToken);
-    ifx.setVerbosity(printVerbose);
+    Influx ifx(INFLUX_HOST, INFLUX_PORT, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
     if (ifx.connectNow() != 0)
     {
         fprintf(stderr, "main: InfluxDB connection failed\n");
         return -1;
     }
 
-    /**
-     * Connect to modbus
-     */
-    modbus_t **connections = (modbus_t **)malloc(sizeof(modbus_t *) * config.numOfInverters);
-    for (int i = 0; i < config.numOfInverters; i++)
+    fprintf(stdout, "Connecting to Inverters...\n");
+
+    // Connect to clients
+    /*
+    SMA_Inverter sb3000 = {
+        .Ip = strdup("172.19.30.0"),
+        .Port = 502,
+        .Name = strdup("SB3000TL-21"),
+    };
+    modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
+    puts("Connected to SB3000TL");
+    */
+
+    SMA_Inverter sb4000 = {
+        .Ip = strdup("172.19.40.0"),
+        .Port = 502,
+        .Name = strdup("SB4000TL-21"),
+    };
+    modbus_t *sb4000_conn = modbus_connect_tcp(sb4000.Ip, sb4000.Port);
+    puts("Connected to SB4000TL");
+
+    // TODO  HANDLE UNIX SIGNALS
+    for (unsigned long long i = 0;; i++)
     {
-        printf("Connecting to %s (%s)\n", config.inverters[i]->Ip, config.inverters[i]->Name);
-        connections[i] = modbus_connect_tcp(config.inverters[i]->Ip, config.inverters[i]->Port);
-        if (connections[i] == NULL)
-        {
-            fprintf(stderr, "Connection failed!");
-            return -1;
-        }
-        printf("Connected!\n");
-    }
+        unsigned long currentTimestamp = time(NULL);
+        fprintf(stdout, "%ld\n", currentTimestamp);
 
-    /**
-     * Timestamp prep
-     */
-    unsigned long currentTimestamp = time(NULL), nextTimestamp = 0;
-    // Round timestamp
-    currentTimestamp -= (currentTimestamp % interval);
+        // processInverter(&sb3000, sb3000_conn);
+        processInverter(&sb4000, sb4000_conn);
 
-    /**
-     * Main loop
-     */
-    int rc = 0;
-    for (unsigned long long i = 0; !run; i++)
-    {
-        nextTimestamp = currentTimestamp + interval;
-
-        for (int i = 0; i < config.numOfInverters; i++)
-        {
-            rc = processInverter(config.inverters[i], connections[i]);
-            if (rc < 0)
-                fprintf(stderr, "modbus: Error: Failed fetching modbus details (%d) for %s\n", rc, config.inverters[i]->Name);
-        }
-
-        if (printVerbose)
-        {
-            printf("\n\nTimestamp: %lu\n", currentTimestamp);
-            for (int i = 0; i < config.numOfInverters; i++)
-                printInverter(config.inverters[i]);
-        }
+        // printInverter(&sb3000);
+        printInverter(&sb4000);
 
         /**
          * Export to InfluxDB using the same timestamp
          */
-        if (printVerbose)
-            printf("Exporting to InfluxDB.\n");
-        for (int i = 0; i < config.numOfInverters; i++)
-        {
-            int rc = exportToInflux(ifx, config.inverters[i], currentTimestamp);
-            if (printVerbose)
-                printf("exportToInflux: %d\n",rc);
-            if (rc < 0) {
-                // Kill program. Systemd will restart it :D
-                return -1;
-            }
-        }
-            
+        // exportToInflux(ifx, &sb3000, currentTimestamp);
+        exportToInflux(ifx, &sb4000, currentTimestamp);
 
-        long waitTime = nextTimestamp - time(NULL);
-        if (waitTime < 0)
-        {
-            fprintf(stderr, "Warning: Modbus fetching took longer than %d seconds!\n", interval);
-            waitTime = 0;
-        }
-
-        sleep(waitTime);
-        // Increase currentTimestamp
-        currentTimestamp += interval;
+        sleep(INTERVAL);
     }
 
-    ifx.closeDB();
-
-    for (int i = 0; i < config.numOfInverters; i++)
-    {
-        modbus_close(connections[i]);
-        free(connections[i]);
-    }
-    free(connections);
+    // modbus_close(sb3000_conn);
+    modbus_close(sb4000_conn);
 
     return 0;
 }

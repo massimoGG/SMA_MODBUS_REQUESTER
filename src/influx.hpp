@@ -18,7 +18,6 @@ class Influx
 {
 private:
     int sockfd = 0;
-    int verbosity = 0;
     static const unsigned int bufsize = 8196;
 
     std::string host_;
@@ -27,16 +26,8 @@ private:
     std::string bkt_;
     std::string tkn_;
 
-    std::string body;
-    std::string tags;
-
-    typedef struct {
-        std::string name;
-        std::vector<std::string> fields;
-    } Measurement;
-    std::vector<Measurement> measurements;
-    
-    // std::vector<std::string> fields;
+    std::stringstream lines_;
+    std::vector<std::string> fields;
     std::string timestamp_;
 
 public:
@@ -52,7 +43,7 @@ public:
     int connectNow()
     {
         fprintf(stdout, "influxdb: Connecting.\n");
-        sockfd = sockfd ? sockfd : socket(AF_INET, SOCK_STREAM, 0);
+        sockfd = sockfd ? sockfd: socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd <= 0)
         {
             fprintf(stderr, "influxdb: socket failed\n");
@@ -70,71 +61,41 @@ public:
             return -2;
         }
 
+        fprintf(stdout, "influxdb: Connected!\n");
+
         return 0;
     }
 
-    void setVerbosity(int verbosity)
-    {
-        this->verbosity = verbosity;
-    }
-
-    void closeDB(void)
+    void close(void)
     {
         if (sockfd > 0)
             ::close(sockfd);
     }
 
-    Influx &clear()
-    {
-        measurements.clear();
-        body.clear();
-        return *this;
-    }
-
-    /**
-     * Create new measurement
-     */
     Influx &meas(const std::string name)
     {
-        measurements.push_back(Measurement {
-            .name = name,
-        });
+        lines_ << name;
         return *this;
     }
-    /**
-     * Only allow 1 tag
-     */
     Influx &tag(const std::string tagKey, const std::string tagValue)
     {
-        tags = "," + tagKey + "=" + tagValue;
+        lines_ << "," << tagKey << "=" << tagValue << " ";
         return *this;
     }
 
-    /**
-     * Append field key-value to measurement map
-     **/
     Influx &field(const std::string fieldKey, const char *fieldValue)
     {
-        Measurement *m = &(measurements.back());
-        m->fields.push_back(
-            fieldKey + "=" + fieldValue
-        );
+        fields.push_back(fieldKey + "=" + fieldValue);
         return *this;
     }
     Influx &field(const std::string fieldKey, const unsigned long fieldValue)
     {
-        Measurement *m = &(measurements.back());
-        m->fields.push_back(
-            fieldKey + "=" + std::to_string(fieldValue) + "i"
-        );
+        fields.push_back(fieldKey + "=" + std::to_string(fieldValue) + "i");
         return *this;
     }
     Influx &field(const std::string fieldKey, const double fieldValue)
     {
-        Measurement *m = &(measurements.back());
-        m->fields.push_back(
-            fieldKey + "=" + std::to_string(fieldValue)
-        );
+        fields.push_back(fieldKey + "=" + std::to_string(fieldValue));
         return *this;
     }
     Influx &timestamp(const unsigned long long time)
@@ -143,51 +104,25 @@ public:
         return *this;
     }
 
-    /**
-     * @return return value of write() to socket
-     */
+    void clear()
+    {
+        lines_.str(std::string());
+        fields.clear();
+    }
+
     int post()
     {
-        body = "";
-
-        /**
-         * Construct body
-         */
-        for (const Measurement &measurement : measurements)
+        std::string body = lines_.str();
+        // Construct fields section
+        for (size_t i = 0; i < fields.size(); i++)
         {
-            // New measurement
-            std::string line;
-            line += measurement.name + tags + " ";
-
-            // Iterate through fields vector
-            // for (const std::string &field : measurement.fields)
-            for (size_t i=0; i<measurement.fields.size(); i++)
+            body += fields[i];
+            if (i + 1 < fields.size())
             {
-                const std::string field = measurement.fields[i];
-
-                // Append field to fields line
-                line += field;
-
-                // If not last, add comma
-                if (i+1 < measurement.fields.size())
-                    line += ",";
+                body += ",";
             }
-
-            line += " " + timestamp_ + "\n";
-            body += line;
         }
-        
-
-        // // Construct fields section
-        // for (size_t i = 0; i < fields.size(); i++)
-        // {
-        //     body += fields[i];
-        //     if (i + 1 < fields.size())
-        //     {
-        //         body += ",";
-        //     }
-        // }
-        // 
+        body += " " + timestamp_;
 
         char header[512];
         std::string buffer;
@@ -198,9 +133,6 @@ public:
         // Combine header and body
         buffer = std::string(header) + body;
         size_t buffer_len = buffer.length();
-
-        if (verbosity)
-            fprintf(stdout, "influxdb: %s\n",buffer.c_str());
 
         int rc = write(sockfd, buffer.c_str(), buffer_len);
         if (rc < len)
@@ -217,18 +149,7 @@ public:
                 return -1;
         }
 
-        /**
-         * TODO: Validated influx request
-         */
-        if (verbosity) {
-            char buf[512];
-            int rb = read(sockfd, buf, 512);
-            printf("Rad: %d bytes -> %s\n", rb, buf);
-        }
-
-        measurements.clear();
-
-        return rc;
+        return 0;
     }
 };
 
