@@ -16,15 +16,14 @@
 
 // Every x seconds
 #define INTERVAL 15
-
 /**
  * Influx stuff
  */
-#define INFLUX_TOKEN "PMZqaSeeUEPTmnC6DJZBWDP3pGmSlhTUQU4u7Erw9x6qEwpiLT99-GV0gh9h6e5lQg4tV-G5Mfde07gPRaJzpg=="
-#define INFLUX_HOST "172.16.1.3"
+#define INFLUX_TOKEN "jj553uNGBo1rHgTuEjb3D-iZhECzs3i99Ubt4S9xAeoccRolxxBGS-rfVXdO2deokw265_FecKYMif-Fwu4NFA=="
+#define INFLUX_HOST "172.17.3.0"
 #define INFLUX_PORT 8086
-#define INFLUX_ORG "massimog"
-#define INFLUX_BUCKET "SMA"
+#define INFLUX_ORG "massimogg"
+#define INFLUX_BUCKET "solar"
 
 int processInverter(SMA_Inverter *pinv, modbus_t *t);
 int exportToInflux(Influx &ifx, SMA_Inverter *pinv, unsigned long currentTimestamp);
@@ -36,15 +35,50 @@ void printInverter(SMA_Inverter *pinv);
  */
 int processInverter(SMA_Inverter *inv, modbus_t *t)
 {
-    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m--------------------------\n", 
-        inv->Name, inv->Ip);
+    if (t == NULL) {
+        return -1;
+    }
 
-    // modbus_t *t = modbus_connect_tcp(inv.Ip, 502);
+    modbus_regs regs;
 
     t->slave = 0x03; // 0 = broadcast, 3= my inverters
 
-    /** Total Yield and Day Yield */
-    modbus_regs regs = modbus_read_registers(t, 30529, 54);
+    /**
+     * Inverter Condition
+     * 	35: Fault (Alm)
+     *  303: Off (Off)
+     *  307: Ok (Ok)
+     *  455: Warning (Wrn)
+     * */
+    regs = modbus_read_registers(t, 30201, 4);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->Condition = getValue(regs, 30201, 30201);
+
+    modbus_free_registers(regs);
+
+    /**
+     * Grid Relay
+     * 	51: Closed (Cls)
+     *  311: Open (Opn)
+     *  16777213: Information not available (NaNStt)
+     */
+    regs = modbus_read_registers(t, 30211, 16);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+    inv->GridRelay = getValue(regs, 30211, 30217);
+
+    modbus_free_registers(regs);
+
+    /** 
+     * Total Yield and Day Yield 
+     */
+    regs = modbus_read_registers(t, 30529, 54);
     if (regs == NULL)
     {
         return -1;
@@ -73,7 +107,24 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
     modbus_free_registers(regs);
 
-    /** TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 */
+    /**
+     * Grid Freq, Reactive Power, Apparent Power
+     */
+    regs = modbus_read_registers(t, 30803, 10);
+    if (regs == NULL)
+    {
+        return -1;
+    }
+
+    inv->GridFreq       = ((double)getValue(regs, 30803, 30803) / 100); // Hz
+    inv->ReactivePower  = getValue(regs, 30803, 30805);    // VAr
+    inv->ApparentPower  = getValue(regs, 30803, 30813);    // VA
+
+    modbus_free_registers(regs);
+
+    /** 
+     * TEMPERATURE, DC AMP, VOLT, WATT B AMP_L1-3 
+     */
     regs = modbus_read_registers(t, 30953, 30);
     if (regs == NULL)
     {
@@ -95,10 +146,20 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
+    ifx.clear();
+
+    // can be a way to see if the inverter is off? 
+    if (inv->Temperature > 10000)
+    {
+        return -1;
+    }
+
     return ifx.meas("measurement")
         .tag("inverter", inv->Name)
+        .field("Condition", inv->Condition)
 
         .field("Temperature", inv->Temperature)
+        // .field("Heatsink", inv->HeatsinkTemperature)
         .field("DayYield", inv->DayYield)
         .field("TotalYield", inv->TotalYield)
 
@@ -113,18 +174,28 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
         .field("Iac1", inv->Iac1)
         .field("Idc1", inv->Idc1)
         .field("Idc2", inv->Idc2)
+
+        .field("GridRelay", inv->GridRelay)
+        .field("GridFreq", inv->GridFreq)
+        .field("ReactivePower", inv->ReactivePower)
+        .field("ApparentPower", inv->ApparentPower)
+
         .timestamp(currentTimestamp)
         .post();
 }
 
 void printInverter(SMA_Inverter *inv)
 {
+    printf("\n\n\n\033[1m---------------------------\nINVERTER - %s\n%s\n---------------------------\033[0m\n", 
+        inv->Name, inv->Ip);
+
     printf("Total yield: %luWh\n", inv->TotalYield);
     printf("Day yield: %luWh\n", inv->DayYield);
-    printf("Inverter\n\tTemperature: %fC\n", inv->Temperature);
+    printf("Inverter\n\tTemperature: %fC\tHeatsink: %fC\n", inv->Temperature, inv->HeatsinkTemperature);
     printf("DC 1\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc1, inv->Idc1, inv->Pdc1);
     printf("DC 2\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n", inv->Udc2, inv->Idc2, inv->Pdc2);
     printf("AC\n\tVolt: %fV\n\tAmp: %fA\n\tWatt: %luW\n",   inv->Uac1, inv->Iac1, inv->Pac1);
+    printf("\tGridFreq: %f\n\tReactiveP: %lu VAr\n\tApparentP: %li\n", inv->GridFreq, inv->ReactivePower, inv->ApparentPower);
 }
 
 int main(void)
@@ -139,17 +210,20 @@ int main(void)
         return -1;
     }
 
+    fprintf(stdout, "Connecting to Inverters...\n");
+
     // Connect to clients
     SMA_Inverter sb3000 = {
-        .Ip = strdup("172.19.1.38"),
+        .Ip = strdup("172.19.30.0"),
         .Port = 502,
         .Name = strdup("SB3000TL-21"),
     };
-    modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
+    // modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
+    modbus_t *sb3000_conn = NULL;
     puts("Connected to SB3000TL");
 
     SMA_Inverter sb4000 = {
-        .Ip = strdup("172.19.1.65"),
+        .Ip = strdup("172.19.40.0"),
         .Port = 502,
         .Name = strdup("SB4000TL-21"),
     };
@@ -176,7 +250,7 @@ int main(void)
         sleep(INTERVAL);
     }
 
-    modbus_close(sb3000_conn);
+    // modbus_close(sb3000_conn);
     modbus_close(sb4000_conn);
 
     return 0;

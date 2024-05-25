@@ -61,6 +61,8 @@ public:
             return -2;
         }
 
+        fprintf(stdout, "influxdb: Connected!\n");
+
         return 0;
     }
 
@@ -100,6 +102,12 @@ public:
     {
         timestamp_ = std::to_string(time);
         return *this;
+    }
+
+    void clear()
+    {
+        lines_.str(std::string());
+        fields.clear();
     }
 
     int post()

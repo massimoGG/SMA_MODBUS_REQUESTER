@@ -1,8 +1,8 @@
 #ifndef MODBUS_H
 #define MODBUS_H
 
-#define DEBUG 0
 #define RETRIES 3
+#define DEBUG 0
 
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
@@ -31,11 +31,11 @@ typedef struct
     unsigned char slave;
     unsigned short transaction_id;
 
-    char ip[16];
+    char *ip;
     unsigned short port;
 } modbus_t;
 
-typedef uint8_t **modbus_regs;
+typedef uint8_t *modbus_regs;
 
 /**
  * Function predefinitions
