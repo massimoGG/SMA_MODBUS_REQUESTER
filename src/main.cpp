@@ -147,7 +147,7 @@ int processInverter(SMA_Inverter *inv, modbus_t *t)
 int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestamp)
 {
     ifx.clear();
-
+    
     // can be a way to see if the inverter is off? 
     if (inv->Temperature > 10000)
     {
@@ -234,6 +234,7 @@ int main(void)
     for (unsigned long long i = 0;; i++)
     {
         unsigned long currentTimestamp = time(NULL);
+        fprintf(stdout, "%ld\n", currentTimestamp);
 
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);

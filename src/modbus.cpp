@@ -36,7 +36,7 @@ modbus_t *modbus_connect_tcp(const char *ip, unsigned short port)
 
     mb->ip = strdup(ip);
     mb->port = port; // INET6_ADDRSTRLEN
-    mb->transaction_id = 0;// -1;
+    mb->transaction_id = -1;
 
     /**
      * TCP socket
