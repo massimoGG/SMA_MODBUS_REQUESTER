@@ -134,6 +134,7 @@ public:
         buffer = std::string(header) + body;
         size_t buffer_len = buffer.length();
 
+    printf("Writing \"%s\" to influx", buffer.c_str());
         int rc = write(sockfd, buffer.c_str(), buffer_len);
         if (rc < len)
         {

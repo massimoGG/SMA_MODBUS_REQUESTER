@@ -218,8 +218,7 @@ int main(void)
         .Port = 502,
         .Name = strdup("SB3000TL-21"),
     };
-    // modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
-    modbus_t *sb3000_conn = NULL;
+    modbus_t *sb3000_conn = modbus_connect_tcp(sb3000.Ip, sb3000.Port);
     puts("Connected to SB3000TL");
 
     SMA_Inverter sb4000 = {
@@ -234,7 +233,6 @@ int main(void)
     for (unsigned long long i = 0;; i++)
     {
         unsigned long currentTimestamp = time(NULL);
-        fprintf(stdout, "%ld\n", currentTimestamp);
 
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);
@@ -251,7 +249,7 @@ int main(void)
         sleep(INTERVAL);
     }
 
-    // modbus_close(sb3000_conn);
+    modbus_close(sb3000_conn);
     modbus_close(sb4000_conn);
 
     return 0;
