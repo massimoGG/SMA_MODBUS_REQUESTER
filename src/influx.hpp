@@ -53,18 +53,23 @@ public:
         }
 
         // Resolve name
-        struct hostent *he;
-        struct in_addr **addr_list;
-        if ((he = gethostbyname(host_.c_str())) == NULL)
-        {
+        struct addrinfo hints, *res;
+        memset(&hints, 0, sizeof hints);
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+
+        int status = getaddrinfo(host_.c_str(), NULL, &hints, &res);
+        if (status != 0) {
+            fprintf(stderr, "influxdb: getaddrinfo error : %s\n", gai_strerror(status));
             return -2;
         }
-        addr_list = (struct in_addr **) he->h_addr_list;
 
         struct sockaddr_in serv_addr;
         serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = addr_list[0]->s_addr; //inet_addr(ipaddr);
+        serv_addr.sin_addr = ((struct sockaddr_in *) (res->ai_addr))->sin_addr;
         serv_addr.sin_port = htons(port_);
+
+        freeaddrinfo(res);
 
         if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
         {
