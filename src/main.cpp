@@ -14,17 +14,6 @@
 #include "sma.h"
 #include "influx.hpp"
 
-// Every x seconds
-#define INTERVAL 15
-/**
- * Influx stuff
- */
-#define INFLUX_TOKEN "jj553uNGBo1rHgTuEjb3D-iZhECzs3i99Ubt4S9xAeoccRolxxBGS-rfVXdO2deokw265_FecKYMif-Fwu4NFA=="
-#define INFLUX_HOST "172.17.3.0"
-#define INFLUX_PORT 8086
-#define INFLUX_ORG "massimogg"
-#define INFLUX_BUCKET "solar"
-
 int processInverter(SMA_Inverter *pinv, modbus_t *t);
 int exportToInflux(Influx &ifx, SMA_Inverter *pinv, unsigned long currentTimestamp);
 void printInverter(SMA_Inverter *pinv);
@@ -200,10 +189,21 @@ void printInverter(SMA_Inverter *inv)
 
 int main(void)
 {
+
+    /**
+     * Get environment variables
+     */
+    const char *influx_host     = getenv("INFLUX_HOST");
+    const int influx_port       = atoi(getenv("INFLUX_PORT"));
+    const char *influx_org      = getenv("INFLUX_ORGANISATION");
+    const char *influx_bucket   = getenv("INFLUX_BUCKET");
+    const char *influx_token    = getenv("INFLUX_TOKEN"); // jaja, I know
+    const int interval          = atoi(getenv("INTERVAL")); 
+
     /**
      * Connect to InfluxDB
      */
-    Influx ifx(INFLUX_HOST, INFLUX_PORT, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
+    Influx ifx(influx_host, influx_port, influx_org, influx_bucket, influx_token);
     if (ifx.connectNow() != 0)
     {
         fprintf(stderr, "main: InfluxDB connection failed\n");
@@ -246,7 +246,7 @@ int main(void)
         exportToInflux(ifx, &sb3000, currentTimestamp);
         exportToInflux(ifx, &sb4000, currentTimestamp);
 
-        sleep(INTERVAL);
+        sleep(interval);
     }
 
     modbus_close(sb3000_conn);

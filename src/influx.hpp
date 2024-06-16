@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
+#include <netdb.h>
 
 class Influx
 {
@@ -50,9 +51,18 @@ public:
             return -1;
         }
 
+        // Resolve name
+        struct hostent *he;
+        struct in_addr **addr_list;
+        if ((he = gethostbyname(host_.c_str())) == NULL)
+        {
+            return -2;
+        }
+        addr_list = (struct in_addr **) he->h_addr_list;
+
         struct sockaddr_in serv_addr;
         serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = inet_addr(host_.c_str());
+        serv_addr.sin_addr.s_addr = addr_list[0]->s_addr; //inet_addr(ipaddr);
         serv_addr.sin_port = htons(port_);
 
         if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
