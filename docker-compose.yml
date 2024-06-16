@@ -15,8 +15,8 @@ services:
     environment:
       - INFLUX_HOST=influxdb
       - INFLUX_PORT=8086
-      - INFLUX_ORGANISATION=massimogg
+      - INFLUX_ORGANISATION=
       - INFLUX_BUCKET=solar
-      - INFLUX_TOKEN=H0rUtT-q6tbShfA9-4Ny0XhgvNkI_Jnpwk0NDqAe9ocpaloV50yBhlApOGeuQWnXzh8HE3nXqYQ2pPdwFvb4CQ==
+      - INFLUX_TOKEN=
       - INTERVAL=15
       - DEBUG=1

@@ -1,9 +1,18 @@
-# SMA_MODBUS_REQUESTER
-Simple SMA Sunny Boy Modbus TCP/IP fetcher written in C++. 
+### **Introduction**
+`SMA ModBus fetcher` (I am not so creative with names :]) is an open source project written in C/C++ to fetch instantaneous values from SMA Sunny Boy inverters. It works and been tested on Linux.
 
-Continuously tested on
+### **What it does**
+This program connects over Modbus to your SMA® solar inverter and reads  instantaneous power generation data. The collected data is stored in an Influx database.
+
+It has been continuously tested on
 - SMA Sunny Boy 3000 with the webconnect module (SB3000TL-21)
 - SMA Sunny Boy 4000 with the webconnect module (SB4000TL-21)
+
+### **Known bugs and limitations**
+For a list of known bugs, consult the [issues](https://github.com/massimoGG/SMA_MODBUS_REQUESTER/issues). If you find a bug, please create an [issue](https://github.com/massimoGG/SMA_MODBUS_REQUESTER/issues).    
+
+### **Documentation**
+Refer to the [Wiki](https://github.com/massimoGG/SMA_MODBUS_REQUESTER/wiki) for documentation and FAQ.
 
 ## Output example
 The following is a typical output of the program.
@@ -45,11 +54,21 @@ Authorization: Token jj553uNGBo1rHgTuEjb3D-iZhECzs3i99Ubt4S9xAeoccRolxxBGS-rfVXd
 measurement,inverter=SB4000TL-21 Condition=307i,Temperature=30.000000,DayYield=1954i,TotalYield=39230580i,Pac1=496i,Pdc1=335i,Pdc2=186i,Uac1=233.830000,Udc1=358.760000,Udc2=220.240000,Iac1=2.147000,Idc1=0.936000,Idc2=0.847000,GridRelay=51i,GridFreq=49.990000,ReactivePower=0i,ApparentPower=0i 1716631685
 ```
 
-## environment variables
-see docker-compose.yml file for an example
+# Build instructions
 
-## Build instructions
-Simply run
+## Docker
+see docker-compose.yml and Dockerfile file.
+
+### environment variables
+- INFLUX_HOST=influxdb
+- INFLUX_PORT=8086
+- INFLUX_ORGANISATION=
+- INFLUX_BUCKET=solar
+- INFLUX_TOKEN=
+- INTERVAL=15
+- DEBUG=1
+
+## Binary
 `make` and `./main`
 
 
