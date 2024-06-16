@@ -43,7 +43,8 @@ public:
 
     int connectNow()
     {
-        fprintf(stdout, "influxdb: Connecting.\n");
+        fprintf(stdout, "influxdb: Connecting to %s:%d with organisation %s and bucket %s .\n",
+            host_.c_str(), port_, org_.c_str(), bkt_.c_str());
         sockfd = sockfd ? sockfd: socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd <= 0)
         {

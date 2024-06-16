@@ -140,7 +140,19 @@ int exportToInflux(Influx &ifx, SMA_Inverter *inv, unsigned long currentTimestam
     // can be a way to see if the inverter is off? 
     if (inv->Temperature > 10000)
     {
-        return -1;
+        return ifx.meas("measurement")
+            .tag("inverter", inv->Name)
+            .field("Condition", inv->Condition)
+
+            // .field("Heatsink", inv->HeatsinkTemperature)
+            .field("DayYield", inv->DayYield)
+            .field("TotalYield", inv->TotalYield)
+
+            .field("GridRelay", inv->GridRelay)
+            .field("GridFreq", inv->GridFreq)
+
+            .timestamp(currentTimestamp)
+            .post();
     }
 
     return ifx.meas("measurement")
@@ -199,6 +211,7 @@ int main(void)
     const char *influx_bucket   = getenv("INFLUX_BUCKET");
     const char *influx_token    = getenv("INFLUX_TOKEN"); // jaja, I know
     const int interval          = atoi(getenv("INTERVAL")); 
+    const int debug             = atoi(getenv("DEBUG"));
 
     /**
      * Connect to InfluxDB
@@ -237,14 +250,22 @@ int main(void)
         processInverter(&sb3000, sb3000_conn);
         processInverter(&sb4000, sb4000_conn);
 
-        printInverter(&sb3000);
-        printInverter(&sb4000);
+        if (debug){
+            printInverter(&sb3000);
+            printInverter(&sb4000);
+        }
 
         /**
          * Export to InfluxDB using the same timestamp
          */
-        exportToInflux(ifx, &sb3000, currentTimestamp);
-        exportToInflux(ifx, &sb4000, currentTimestamp);
+        int ret = exportToInflux(ifx, &sb3000, currentTimestamp);
+        if (debug) {
+            printf("export to influx: %d\n",ret);
+        }
+        ret = exportToInflux(ifx, &sb4000, currentTimestamp);
+        if (debug) {
+            printf("export to influx: %d\n",ret);
+        }
 
         sleep(interval);
     }

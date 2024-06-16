@@ -19,3 +19,4 @@ services:
       - INFLUX_BUCKET=solar
       - INFLUX_TOKEN=H0rUtT-q6tbShfA9-4Ny0XhgvNkI_Jnpwk0NDqAe9ocpaloV50yBhlApOGeuQWnXzh8HE3nXqYQ2pPdwFvb4CQ==
       - INTERVAL=15
+      - DEBUG=1
