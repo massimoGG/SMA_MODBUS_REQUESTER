@@ -45,8 +45,8 @@ Authorization: Token jj553uNGBo1rHgTuEjb3D-iZhECzs3i99Ubt4S9xAeoccRolxxBGS-rfVXd
 measurement,inverter=SB4000TL-21 Condition=307i,Temperature=30.000000,DayYield=1954i,TotalYield=39230580i,Pac1=496i,Pdc1=335i,Pdc2=186i,Uac1=233.830000,Udc1=358.760000,Udc2=220.240000,Iac1=2.147000,Idc1=0.936000,Idc2=0.847000,GridRelay=51i,GridFreq=49.990000,ReactivePower=0i,ApparentPower=0i 1716631685
 ```
 
-## Config
-See config file
+## environment variables
+see docker-compose.yml file for an example
 
 ## Build instructions
 Simply run
