@@ -259,12 +259,10 @@ int main(void)
          * Export to InfluxDB using the same timestamp
          */
         int ret = exportToInflux(ifx, &sb3000, currentTimestamp);
-        if (debug) {
-            printf("export to influx: %d\n",ret);
-        }
         ret = exportToInflux(ifx, &sb4000, currentTimestamp);
-        if (debug) {
-            printf("export to influx: %d\n",ret);
+        if (ret != 0) {
+            break;
+            // Abort if connection with Influx lost
         }
 
         sleep(interval);
