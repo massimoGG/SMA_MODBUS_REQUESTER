@@ -265,6 +265,8 @@ int main(void)
             // Abort if connection with Influx lost
         }
 
+        printf("%u OK\n", (unsigned)time(NULL));
+
         sleep(interval);
     }
 
